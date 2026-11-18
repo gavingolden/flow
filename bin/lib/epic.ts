@@ -87,6 +87,7 @@ import {
   backoffMsForAttempt,
   ensureLaunchSettings,
   stillStartingHint,
+  pipelineAddDirs,
 } from "./feature";
 import { releaseReservedWorktree, reserveWorktreeSlot } from "./worktree-slot";
 import {
@@ -896,8 +897,7 @@ function printStillStarting(
   for (const line of stillStartingHint(
     slug,
     capturePaneBySlug(slug),
-    [worktree, flowClaudeHome()],
-    [worktree],
+    pipelineAddDirs(worktree),
   )) {
     console.error(dim(line));
   }

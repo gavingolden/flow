@@ -1426,8 +1426,7 @@ function runFresh(
     for (const line of stillStartingHint(
       slug,
       capturePaneBySlug(slug),
-      [worktree, flowClaudeHome(), overlay?.addDir].filter(Boolean) as string[],
-      [worktree, overlay?.addDir].filter(Boolean) as string[],
+      pipelineAddDirs(worktree, overlay?.addDir),
     )) {
       console.error(dim(line));
     }
@@ -1790,8 +1789,7 @@ function runResume(
     for (const line of stillStartingHint(
       slug,
       capturePaneBySlug(slug),
-      [worktree, flowClaudeHome(), overlay?.addDir].filter(Boolean) as string[],
-      [worktree, overlay?.addDir].filter(Boolean) as string[],
+      pipelineAddDirs(worktree, overlay?.addDir),
     )) {
       console.error(dim(line));
     }
@@ -1933,6 +1931,14 @@ function launchArgv(
  * feature targets), not scope creep beyond the plan's `launch.ts`-only
  * naming for Task 5's bare-`flow` launcher.
  */
+/** Every folder a pipeline's claude session is launched with `--add-dir`; the trust-question hint reads the same list. */
+export function pipelineAddDirs(
+  worktree: string,
+  overlayDir?: string,
+): string[] {
+  return [worktree, flowClaudeHome(), ...(overlayDir ? [overlayDir] : [])];
+}
+
 function claudeArgv(
   name: string,
   worktree: string,
@@ -1946,11 +1952,7 @@ function claudeArgv(
   // never `~/.flow` or the whole overlays dir: sub-skills Read siblings from it.
   const base = [
     "claude",
-    "--add-dir",
-    worktree,
-    "--add-dir",
-    flowClaudeHome(),
-    ...(overlayDir ? ["--add-dir", overlayDir] : []),
+    ...pipelineAddDirs(worktree, overlayDir).flatMap((d) => ["--add-dir", d]),
     "--name",
     name,
     ...pluginDirArgs(roots),
@@ -2319,22 +2321,17 @@ function buildPlainCommand(
   );
 }
 
-/** Names the likeliest reason a launched window has not confirmed: a trust question holds the start command until answered. Numbered steps when the pane shows one, else one generic line. */
+/** Names the likeliest reason a launched window has not confirmed: a trust question holds the start command until answered. Numbered steps either way; with no question on screen yet they cover both questions. */
 export function stillStartingHint(
   slug: string,
   pane?: string,
-  addedFolders?: readonly string[],
-  perPipelineFolders?: readonly string[],
+  addedFolders: readonly string[] = [],
 ): string[] {
   const dialog = detectTrustDialog(pane ?? "", addedFolders);
-  if (!dialog) {
-    return [
-      `  if Claude Code is asking a trust question: flow attach ${slug}, then choose "Yes, I trust this folder" — or, for "Adding a new directory", press ↓ to "Yes, add it" and Enter (Enter alone exits); to stop it recurring, trust that folder's stable parent once (for a skill copy: cd ~/.flow/overlays && claude); if the start command sits in the input box, press Enter there`,
-    ];
-  }
+  const claudeHome = flowClaudeHome();
   const steps = trustDialogSteps(slug, dialog, {
     addedFolders,
-    perPipelineFolders,
+    perPipelineFolders: addedFolders.filter((f) => f !== claudeHome),
   });
   return [
     "  if Claude Code is asking a trust question, do this:",

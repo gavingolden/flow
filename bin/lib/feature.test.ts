@@ -237,6 +237,7 @@ import {
 import { materializeSkillOverlay } from "./skill-overlay";
 import * as grantsModule from "./manager-grants";
 import { readManagerLog } from "./manager-log";
+import { tildePath } from "./trust-dialog";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -5146,13 +5147,16 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
 
   beforeEach(() => {
     scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-overlay-"));
-    overlaysDir = path.join(scratch, "overlays");
+    vi.stubEnv("HOME", scratch);
+    fs.mkdirSync(path.join(scratch, ".flow"));
+    overlaysDir = path.join(scratch, ".flow", "overlays");
     settingsPath = path.join(scratch, "launch-settings.json");
     sharedRoot = path.join(scratch, "shared", "flow-module-core");
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(scratch, { recursive: true, force: true });
   });
 
@@ -5188,12 +5192,7 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
     ).toBe("skill v1\n");
   });
 
-  const parentLabel = () => {
-    const home = process.env.HOME || os.homedir();
-    return overlaysDir.startsWith(`${home}/`)
-      ? `~/${overlaysDir.slice(home.length + 1)}`
-      : overlaysDir;
-  };
+  const parentLabel = () => tildePath(overlaysDir);
   const addDirPane = (slug: string) =>
     `Adding a new directory:\n${path.join(overlaysDir, slug)}\n\n❯ No, exit\n  Yes, add it`;
 

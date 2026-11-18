@@ -78,7 +78,11 @@ export const MANAGER_CHECKIN_TIMEOUT_MS = 90_000;
 const CHECKIN_POLL_MS = 1000;
 const CHECKIN_PROGRESS_MS = 15_000;
 
-export type ManagerCheckIn = "checked-in" | "trust-prompt" | "dead" | "timeout";
+export type ManagerCheckIn =
+  | { status: "trust-prompt"; dialog: TrustDialog }
+  | { status: "checked-in" | "dead" | "timeout" };
+
+const managerAddDirs = (): string[] => [flowClaudeHome()];
 
 /** Waits for the manager's first check-in; pane text only picks the message, never the outcome of a check-in. */
 export function awaitManagerCheckIn(opts: {
@@ -88,11 +92,11 @@ export function awaitManagerCheckIn(opts: {
   sleep: (ms: number) => void;
   timeoutMs: number;
   onProgress?: (elapsedMs: number) => void;
-}): { status: ManagerCheckIn; dialog?: TrustDialog } {
+}): ManagerCheckIn {
   for (let elapsed = 0; ; elapsed += CHECKIN_POLL_MS) {
     if (opts.consumed()) return { status: "checked-in" };
     if (!opts.isAlive()) return { status: "dead" };
-    const dialog = detectTrustDialog(opts.readPane(), [flowClaudeHome()]);
+    const dialog = detectTrustDialog(opts.readPane(), managerAddDirs());
     if (dialog) return { status: "trust-prompt", dialog };
     if (elapsed >= opts.timeoutMs) return { status: "timeout" };
     opts.onProgress?.(elapsed);
@@ -109,7 +113,7 @@ function reportTrustDialog(dialog: TrustDialog): void {
     `flow manage: the manager has not started — Claude Code is asking ${asking}`,
   );
   trustDialogSteps("manager", dialog, {
-    addedFolders: [flowClaudeHome()],
+    addedFolders: managerAddDirs(),
   }).forEach((step, i) => console.error(`  ${i + 1}. ${step}`));
 }
 
@@ -303,8 +307,7 @@ function launchCommand(
     "claude",
     "--name",
     MANAGER_WINDOW,
-    "--add-dir",
-    flowClaudeHome(),
+    ...managerAddDirs().flatMap((d) => ["--add-dir", d]),
     ...pluginDirArgs(roots),
     "--model",
     record.model,
@@ -387,7 +390,7 @@ export function runManageCli(
     if (!open || !managerLaunchConsumed(home, open.startedAt)) {
       const dialog = detectTrustDialog(
         (options.readPane ?? ((n) => capturePaneBySlug(n)))(MANAGER_WINDOW),
-        [flowClaudeHome()],
+        managerAddDirs(),
       );
       if (dialog) {
         reportTrustDialog(dialog);
@@ -525,7 +528,7 @@ export function runManageCli(
     "manager",
   );
   const checkInMs = options.checkInTimeoutMs ?? MANAGER_CHECKIN_TIMEOUT_MS;
-  const { status: checkIn, dialog } = awaitManagerCheckIn({
+  const checkIn = awaitManagerCheckIn({
     consumed: () => managerLaunchConsumed(home, record.startedAt),
     isAlive: () => (options.isAlive ?? ((n) => isPaneAlive(n)))(MANAGER_WINDOW),
     readPane: () =>
@@ -535,15 +538,15 @@ export function runManageCli(
     onProgress: makeCheckInProgress(),
   });
   if (process.stderr.isTTY === true) process.stderr.write("\r\x1b[2K");
-  if (checkIn === "checked-in") {
+  if (checkIn.status === "checked-in") {
     console.log("manager started — attach with: flow attach manager");
     return 0;
   }
-  if (checkIn === "trust-prompt" && dialog) {
-    reportTrustDialog(dialog);
+  if (checkIn.status === "trust-prompt") {
+    reportTrustDialog(checkIn.dialog);
     return 2;
   }
-  if (checkIn === "timeout") {
+  if (checkIn.status === "timeout") {
     console.error(
       `flow manage: the manager window opened but has not checked in after ${Math.round(checkInMs / 1000)}s — it may still be starting`,
     );

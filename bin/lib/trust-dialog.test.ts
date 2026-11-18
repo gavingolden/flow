@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { detectTrustDialog, trustDialogSteps } from "./trust-dialog";
 
 const HOME = "/Users/u";
+
+beforeEach(() => {
+  vi.stubEnv("HOME", HOME);
+});
+afterEach(() => vi.unstubAllEnvs());
 const OVERLAY = `${HOME}/.flow/overlays/my-slug`;
 const CLAUDE_HOME = `${HOME}/.flow/claude-home`;
 
@@ -48,6 +53,24 @@ function addDirPane(folderLines: string[]): string {
 describe("detectTrustDialog", () => {
   it("should name the candidate folder when the add-directory question shows it", () => {
     const pane = addDirPane([` ${OVERLAY}`]);
+
+    expect(detectTrustDialog(pane, [OVERLAY, CLAUDE_HOME])).toEqual({
+      kind: "add-dir",
+      folder: OVERLAY,
+    });
+  });
+
+  it("should name the folder when the question shows it in ~ form", () => {
+    const pane = addDirPane([" ~/.flow/overlays/my-slug"]);
+
+    expect(detectTrustDialog(pane, [OVERLAY, CLAUDE_HOME])).toEqual({
+      kind: "add-dir",
+      folder: OVERLAY,
+    });
+  });
+
+  it("should name the folder when its ~-form path wraps across two box lines", () => {
+    const pane = addDirPane([" ~/.flow/overl", " ays/my-slug"]);
 
     expect(detectTrustDialog(pane, [OVERLAY, CLAUDE_HOME])).toEqual({
       kind: "add-dir",
@@ -135,7 +158,7 @@ describe("trustDialogSteps", () => {
     expect(steps[2]).toContain("cd ~/.flow/claude-home && claude");
   });
 
-  it("should send a per-pipeline worktree to its parent folder", () => {
+  it("should name a worktree outside the flow container itself, not its parent", () => {
     const worktree = `${HOME}/code/wt/flow-x`;
 
     const steps = trustDialogSteps("x", dialog(worktree), {
@@ -143,7 +166,7 @@ describe("trustDialogSteps", () => {
       home: HOME,
     });
 
-    expect(steps[2]).toContain("cd ~/code/wt && claude");
+    expect(steps[2]).toContain("cd ~/code/wt/flow-x && claude");
   });
 
   it("should name the single implied root when the folder is unknown", () => {
@@ -155,15 +178,62 @@ describe("trustDialogSteps", () => {
     expect(steps[2]).toContain("cd ~/.flow/claude-home && claude");
   });
 
-  it("should fall back to the folder it names when several roots are implied", () => {
+  it("should list each implied root by kind, never ~/.flow, when several roots are implied", () => {
     const steps = trustDialogSteps("x", dialog(null), {
       addedFolders: [CLAUDE_HOME, OVERLAY],
       perPipelineFolders: [OVERLAY],
       home: HOME,
     });
 
-    expect(steps[2]).toContain("the folder it names");
-    expect(steps[2]).toContain("stable parent folder");
+    expect(steps[2]).toContain("cd ~/.flow/claude-home && claude");
+    expect(steps[2]).toContain("cd ~/.flow/overlays && claude");
+    expect(steps[2]).not.toMatch(/cd ~\/\.flow && claude/);
+  });
+
+  it("should never send a legacy sibling-layout worktree to the code folder", () => {
+    const worktree = `${HOME}/code/flow-x`;
+
+    const steps = trustDialogSteps("x", dialog(worktree), {
+      addedFolders: [worktree],
+      perPipelineFolders: [worktree],
+      home: HOME,
+    });
+
+    expect(steps[2]).toContain("cd ~/code/flow-x && claude");
+    expect(steps[2]).not.toContain("cd ~/code && claude");
+  });
+
+  it("should send a worktree in the flow container to the container", () => {
+    const worktree = `${HOME}/code/flow-worktrees.noindex/flow-x`;
+
+    const steps = trustDialogSteps("x", dialog(worktree), {
+      perPipelineFolders: [worktree],
+      home: HOME,
+    });
+
+    expect(steps[2]).toContain("cd ~/code/flow-worktrees.noindex && claude");
+  });
+
+  it("should cover both questions when none is on screen yet", () => {
+    const steps = trustDialogSteps("x", null, {
+      addedFolders: [CLAUDE_HOME],
+      home: HOME,
+    });
+
+    expect(steps[1]).toContain("Yes, I trust this folder");
+    expect(steps[1]).toContain("Yes, add it");
+  });
+
+  it("should warn about the add-directory question after the starting-folder one", () => {
+    const steps = trustDialogSteps(
+      "x",
+      { kind: "folder" },
+      {
+        addedFolders: [CLAUDE_HOME],
+      },
+    );
+
+    expect(steps[1]).toContain("Adding a new directory");
   });
 
   it("should tell the user to choose the trust button for the starting-folder question", () => {

@@ -1,5 +1,6 @@
 import * as path from "node:path";
-import { currentHome } from "./paths";
+import { currentHome, flowOverlaysDir } from "./paths";
+import { WORKTREE_CONTAINER_NAME } from "./worktree-slot";
 
 export type TrustDialog =
   | { kind: "folder" }
@@ -55,15 +56,22 @@ export function detectTrustDialog(
   return null;
 }
 
-// Per-pipeline folders are new every launch, so trusting the folder itself
-// would help once; their stable parent covers every future one.
+// Per-pipeline folders are new every launch, so their stable parent covers
+// every future one, but only when that parent is flow-owned: a legacy
+// sibling-layout worktree's parent is the user's whole code folder.
 function trustRoot(folder: string, perPipeline: readonly string[]): string {
-  return perPipeline.includes(folder) ? path.dirname(folder) : folder;
+  if (!perPipeline.includes(folder)) return folder;
+  const parent = path.dirname(folder);
+  const flowOwned =
+    path.basename(parent) === WORKTREE_CONTAINER_NAME ||
+    parent === flowOverlaysDir();
+  return flowOwned ? parent : folder;
 }
 
+/** `dialog` is null when no question is on screen yet, so either one may be pending. */
 export function trustDialogSteps(
   attachName: string,
-  dialog: TrustDialog,
+  dialog: TrustDialog | null,
   opts: {
     addedFolders?: readonly string[];
     perPipelineFolders?: readonly string[];
@@ -71,27 +79,37 @@ export function trustDialogSteps(
   } = {},
 ): string[] {
   const attach = `flow attach ${attachName}`;
-  if (dialog.kind === "folder") {
+  const added = opts.addedFolders ?? [];
+  if (dialog?.kind === "folder") {
+    const next =
+      added.length > 0
+        ? '; if it next asks "Adding a new directory", press ↓ to "Yes, add it" then Enter (Enter alone exits)'
+        : " — it then starts by itself";
     return [
       attach,
-      'choose "Yes, I trust this folder" — it then starts by itself (if the start command sits in the input box, press Enter there)',
+      `choose "Yes, I trust this folder"${next} (if the start command sits in the input box, press Enter there)`,
     ];
   }
   const perPipeline = opts.perPipelineFolders ?? [];
-  const roots = new Set(
-    (opts.addedFolders ?? []).map((f) => trustRoot(f, perPipeline)),
-  );
-  const root = dialog.folder
+  const roots = [...new Set(added.map((f) => trustRoot(f, perPipeline)))];
+  const root = dialog?.folder
     ? trustRoot(dialog.folder, perPipeline)
-    : roots.size === 1
-      ? [...roots][0]
+    : roots.length === 1
+      ? roots[0]
       : null;
+  const cd = (r: string) => `cd ${tildePath(r, opts.home)} && claude`;
   const trust = root
-    ? `cd ${tildePath(root, opts.home)} && claude`
-    : "cd into the stable parent folder of the folder it names and run claude";
+    ? cd(root)
+    : roots.length > 1
+      ? `run claude in the folder it names (${roots.map(cd).join(" or ")})`
+      : "cd into the folder it names and run claude";
+  const answer =
+    dialog === null
+      ? 'if it asks whether you trust the folder, choose "Yes, I trust this folder"; if it asks to add a new directory, press ↓ to "Yes, add it", then Enter — Enter alone picks "No, exit" and closes the session; if it asks again for another folder, answer the same way; if the start command sits in the input box, press Enter there'
+      : 'press ↓ to "Yes, add it", then Enter — Enter alone picks "No, exit" and closes the session; if it asks again for another folder, answer the same way';
   return [
     attach,
-    'press ↓ to "Yes, add it", then Enter — Enter alone picks "No, exit" and closes the session; if it asks again for another folder, answer the same way',
+    answer,
     `so it stops asking on every launch: ${trust}, choose "Yes, I trust this folder", then /exit`,
   ];
 }
