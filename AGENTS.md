@@ -134,6 +134,10 @@ No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
   (2) `flow-browser-teardown --reap --record` as the guaranteed
   registry-driven backstop, never `|| true`-swallowed; (3) `flow reap` as
   the crash-path net (incl. worktree leftovers), never primary. See `skills/pipeline/flow-pipeline/references/phases/resource-cleanup.md`.
+- Don't start a poll without a deadline: wait with `flow-wait` or `flow-ci-wait`
+  (`flow-manager-wait` is the manager's own waiter; starting it elsewhere
+  supersedes the live manager's). Never let a command read stdin: add
+  `/dev/null` when its file arguments come only from `$(…)`.
 - Don't auto-commit/push outside explicit instruction on `main`; on a
   feature/PR branch, invoking a code-editing skill IS the instruction to
   commit that branch's edits. Named exemptions are enumerated in
