@@ -34,11 +34,9 @@ import {
   EPIC_MANIFEST_FILENAME,
   epicDirRelative,
 } from "./epic-manifest-schema";
-import {
-  loadCommittedManifest,
-  parseEnumValueFlag,
-  type EpicOptions,
-} from "./epic";
+import type { EpicOptions } from "./epic";
+import { parseEnumValueFlag } from "./epic-flags";
+import { loadCommittedManifest } from "./epic-manifest-load";
 import { argsContainHelp } from "./help";
 import { resolveLauncherBackend } from "./launcher-config";
 import { pidStartEpoch, type LivenessDeps } from "./liveness";

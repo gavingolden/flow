@@ -6,10 +6,6 @@
  * reads differently. Rules: skills/pipeline/flow-pr-review/references/
  * manual-test-rubric.md `## Mechanical lint`.
  */
-import {
-  extractStrippedSection,
-  testStepsSectionBounds,
-} from "../flow-gate-decide";
 import { imageRefs } from "./image-refs";
 import {
   matchInstallDependent,
@@ -17,6 +13,10 @@ import {
 } from "./install-only-names";
 import { fencedLineMask } from "./md-block-structure";
 import { missingViews, requiredViews, shotView } from "./signoff-views";
+import {
+  extractStrippedSection,
+  testStepsSectionBounds,
+} from "./test-steps-section";
 
 export type StepKind =
   | "command"

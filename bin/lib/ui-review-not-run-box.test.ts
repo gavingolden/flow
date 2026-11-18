@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { LoopLog } from "./ui-critique";
 import { emptyLoopLog } from "./ui-critique";
 import { UI_REVIEW_NOT_RUN_MARKER } from "./ui-critique-render";
-import { notRunAccepted, type UiReviewGate } from "./ui-review-gate";
+import { hasLiveNotRunLine } from "./ui-review-body";
+import type { UiReviewGate } from "./ui-review-gate";
 import { addMissingNotRunBox, ensureNotRunBox } from "./ui-review-not-run-box";
 
 const UNSAT: UiReviewGate = {
@@ -59,7 +60,7 @@ describe("ensureNotRunBox shapes", () => {
   it.each(cases)("%s", (_n, body, l) => {
     const out = ensureNotRunBox(body, UNSAT, l)!;
     expect(out).not.toBeNull();
-    expect(notRunAccepted(out)).toBe(true);
+    expect(hasLiveNotRunLine(out)).toBe(true);
     // The trapped look-alike stays as text; only the fresh line is live.
     expect(unchecked(out)).toHaveLength(_n.startsWith("trapped") ? 2 : 1);
     expect(out.match(/<!-- flow:ui-review -->/g)).toHaveLength(1);

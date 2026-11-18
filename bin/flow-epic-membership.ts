@@ -20,7 +20,7 @@ import { readEpicRunState, type EpicRunState } from "./lib/epic-run-state";
 import { reconcile } from "./lib/epic-reconcile";
 import type { ReconcileResult } from "./lib/epic-reconcile";
 import { renderBoard } from "./lib/epic-render";
-import { loadCommittedManifest } from "./lib/epic";
+import { loadCommittedManifest } from "./lib/epic-manifest-load";
 import { resolveRepoRoot } from "./lib/repo-root";
 import {
   epicDirRelative,

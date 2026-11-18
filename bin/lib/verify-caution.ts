@@ -8,8 +8,8 @@
  * (the UI-skip NOTE) must sit OUTSIDE the markers, or a clear removes them.
  */
 import * as path from "node:path";
-import { testStepsSectionBounds } from "../flow-gate-decide";
 import { fencedLineMask } from "./md-block-structure";
+import { testStepsSectionBounds } from "./test-steps-section";
 
 const OPEN = "<!-- flow:verify-caution -->";
 const CLOSE = "<!-- /flow:verify-caution -->";

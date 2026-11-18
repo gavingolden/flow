@@ -109,4 +109,6 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
   return 1;
 }
 
-main().then((code) => process.exit(code));
+if (import.meta.main) {
+  main().then((code) => process.exit(code));
+}
