@@ -212,10 +212,12 @@ export function renderStaleShellLines(r: StaleShellSweepResult): string[] {
     const verb = !r.act
       ? "would stop"
       : r.stillAlive.includes(s.pgid)
-        ? "could not stop"
-        : r.skippedRecycled.includes(s.pgid) || !r.signalled.includes(s.pgid)
-          ? "skipped"
-          : "stopped";
+        ? `could not stop (still running after SIGKILL; stop pid ${s.pid} by hand)`
+        : r.skippedRecycled.includes(s.pgid)
+          ? "skipped (process already ended; pid reused)"
+          : !r.signalled.includes(s.pgid)
+            ? "not stopped (ran out of time; re-run flow done)"
+            : "stopped";
     const watched = s.refs.map((ref) => ref.path).join(", ");
     return `${verb} background shell ${s.pid} (${owner}, ${formatAge(s.ageSec)}) — watched ${watched} (pipeline closed): ${s.preview}`;
   });

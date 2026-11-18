@@ -163,7 +163,10 @@ vi.mock("./stale-shells-run", () => ({
     stillAlive: [],
     skippedRecycled: [],
   }),
-  renderStaleShellLines: () => [],
+  renderStaleShellLines: (r: { act: boolean; found: Array<{ pid: number }> }) =>
+    r.found.map(
+      (s) => `${r.act ? "stopped" : "would stop"} background shell ${s.pid}`,
+    ),
   STALE_SHELL_MIN_AGE_SEC: 60,
 }));
 
@@ -1526,6 +1529,52 @@ describe("stale-shell sweep", () => {
     expect(actCall?.[0]).toEqual([
       { slug: "foo", worktree: "/w/flow-worktrees.noindex/foo" },
     ]);
+    expect(logs.some((l) => l.includes("stopped background shell 200"))).toBe(
+      true,
+    );
+  });
+
+  it("should run the report-only count only when a prompt or re-run gate needs it", () => {
+    stateMock.readState.mockReturnValue(
+      state({ slug: "foo", phase: "merged" }),
+    );
+    const seam = vi.fn((_t: unknown, act: boolean) => result(act, [200]));
+
+    runDone("foo", { yes: true, staleShellSweep: seam });
+
+    expect(seam.mock.calls.filter((c) => c[1] === false)).toHaveLength(0);
+  });
+
+  it("should ask before stopping shells for an already-closed slug and stop none on a decline", () => {
+    readSyncMock.mockImplementation((_fd, buf) => {
+      Buffer.from("n\n").copy(buf);
+      return 2;
+    });
+    const out = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const seam = vi.fn((_t: unknown, act: boolean) => result(act, [200, 201]));
+
+    expect(runDone("foo", { staleShellSweep: seam })).toBe(0);
+
+    const prompt = out.mock.calls.map((c) => String(c[0])).join("");
+    expect(prompt).toContain(
+      "stop 2 background waits watching closed pipeline 'foo'?",
+    );
+    expect(seam.mock.calls.some((c) => c[1] === true)).toBe(false);
+  });
+
+  it("should keep a latch-failed pipeline's shells when closing a single slug", () => {
+    stateMock.readState.mockReturnValue(
+      state({ slug: "foo", phase: "merged" }),
+    );
+    latchMock.latchEpicBinding.mockImplementation(() => {
+      throw new Error("lock held");
+    });
+    const seam = vi.fn((_t: unknown, act: boolean) => result(act, [200]));
+
+    expect(runDone("foo", { yes: true, staleShellSweep: seam })).toBe(1);
+    expect(seam.mock.calls.some((c) => c[1] === true)).toBe(false);
   });
 
   it("should fold the count into the existing confirm prompt", () => {

@@ -362,9 +362,14 @@ export function runDone(
   const staleTargets = targetsOf([
     { slug: name, worktree: recordedState?.worktree },
   ]);
-  const waiting = countStaleShells(options.staleShellSweep, staleTargets);
+  // The count only feeds a confirm prompt or the already-closed re-run gate.
+  const alreadyClosed = !hasWindow && !hasState && !hasRows;
+  const waiting =
+    options.yes && !alreadyClosed
+      ? 0
+      : countStaleShells(options.staleShellSweep, staleTargets);
 
-  if (!hasWindow && !hasState && !hasRows) {
+  if (alreadyClosed) {
     // A re-run after the window and state are gone can still own shells
     // watching that slug's state file.
     if (waiting === 0) {
@@ -519,9 +524,11 @@ function sweep(
 ): number {
   console.log(`will close ${states.length} pipeline(s):`);
   for (const s of states) console.log(format(s));
-  const waiting = countStaleShells(options.staleShellSweep, targetsOf(states));
-
   if (!options.yes) {
+    const waiting = countStaleShells(
+      options.staleShellSweep,
+      targetsOf(states),
+    );
     if (!confirm(`proceed${confirmSuffix(waiting)}?`)) {
       console.log(dim("flow done: aborted — nothing closed"));
       return 0;

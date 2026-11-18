@@ -116,7 +116,9 @@ describe("sweepStaleShells", () => {
     const h = harness([pane, owner, shell], { diesOn: "never" });
     const r = sweepStaleShells(h.deps, { act: true, targets: TARGETS });
     expect(r.stillAlive).toEqual([200]);
-    expect(renderStaleShellLines(r)[0]).toMatch(/^could not stop/);
+    expect(renderStaleShellLines(r)[0]).toMatch(
+      /^could not stop \(still running after SIGKILL; stop pid 200 by hand\)/,
+    );
   });
 
   it("should skip a pid whose start time changed (recycled)", () => {
@@ -127,7 +129,18 @@ describe("sweepStaleShells", () => {
     const r = sweepStaleShells(h.deps, { act: true, targets: TARGETS });
     expect(h.signals).toEqual([]);
     expect(r.skippedRecycled).toEqual([200]);
-    expect(renderStaleShellLines(r)[0]).toMatch(/^skipped/);
+    expect(renderStaleShellLines(r)[0]).toMatch(
+      /^skipped \(process already ended; pid reused\) background shell 200/,
+    );
+  });
+
+  it("should name the out-of-time case separately from a recycled pid", () => {
+    const h = harness([pane, owner, shell]);
+    const r = sweepStaleShells(h.deps, { act: true, targets: TARGETS });
+    const unsignalled = { ...r, signalled: [], skippedRecycled: [] };
+    expect(renderStaleShellLines(unsignalled)[0]).toMatch(
+      /^not stopped \(ran out of time; re-run flow done\) background shell 200/,
+    );
   });
 
   it("should never signal when the start time is unreadable", () => {
