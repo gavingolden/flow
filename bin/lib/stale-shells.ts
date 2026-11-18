@@ -85,8 +85,12 @@ function startsFlowHelper(cmd: string): boolean {
   });
 }
 
-const NAME_CHARS = String.raw`[^\s"'` + "`" + String.raw`;&|()<>\\$]`;
-const SEGMENT_CHARS = String.raw`[^\s/"'` + "`" + String.raw`;&|()<>\\$]`;
+const NAME_CHARS = String.raw`[^\s"'` + "`" + String.raw`;&|()<>\\$*?\[{}]`;
+const SEGMENT_CHARS = String.raw`[^\s/"'` + "`" + String.raw`;&|()<>\\$*?\[{}]`;
+// A name must end at a boundary, never mid-token: without the NAME/SEGMENT
+// class here, backtracking trims `foo-$n` to `foo` and matches pipeline foo.
+const NAME_END = String.raw`(?!` + NAME_CHARS + String.raw`|[$*?\[{}])`;
+const SEGMENT_END = String.raw`(?!` + SEGMENT_CHARS + String.raw`|[$*?\[{}])`;
 const ASSIGN =
   String.raw`(?:^|[\s;&|(])([A-Za-z_]\w*)=(?:"([^"$` +
   "`" +
@@ -128,14 +132,14 @@ export function referencedPaths(
     refs.set(`${kind}:${p}`, { kind, path: p });
   };
   const stateRe = new RegExp(
-    `${escapeRe(stateDir.replace(/\/+$/, ""))}/(${NAME_CHARS}+)(?![$/*?\\[{])`,
+    `${escapeRe(stateDir.replace(/\/+$/, ""))}/(${NAME_CHARS}+)${NAME_END}`,
     "g",
   );
   for (const m of text.matchAll(stateRe)) {
     if (!m[1].includes("/")) add("state-file", path.join(stateDir, m[1]));
   }
   const wtRe = new RegExp(
-    `(/${NAME_CHARS}*?/?${escapeRe(WORKTREE_CONTAINER_NAME)})/(${SEGMENT_CHARS}+)(?![$*?\\[{])`,
+    `(/${NAME_CHARS}*?/?${escapeRe(WORKTREE_CONTAINER_NAME)})/(${SEGMENT_CHARS}+)${SEGMENT_END}`,
     "g",
   );
   for (const m of text.matchAll(wtRe)) add("worktree", `${m[1]}/${m[2]}`);
@@ -155,7 +159,8 @@ export function forPipelines(
   return (ref) => {
     if (ref.kind === "worktree") return worktrees.has(path.resolve(ref.path));
     if (path.dirname(path.resolve(ref.path)) !== dir) return false;
-    return slugs.has(path.basename(ref.path).split(".")[0]);
+    const m = /^(.+?)\.(?:json|request\.md)$/.exec(path.basename(ref.path));
+    return m !== null && slugs.has(m[1]);
   };
 }
 

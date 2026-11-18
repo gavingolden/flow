@@ -191,6 +191,20 @@ describe("selectStaleShells", () => {
   });
 
   it.each([
+    "for n in 2 3; do jq -r .phase ~/.flow/state/foo-$n.json; sleep 5; done",
+    "until [ -f ~/.flow/state/foo-${N}.json ]; do sleep 5; done",
+    "ls /x/flow-worktrees.noindex/flow-foo-$n; sleep 5",
+    "cat ~/.flow/state/foo.*",
+    "cat ~/.flow/state/foo",
+    "cat ~/.flow/state/foo.json.bak",
+  ])("should never select a path that is only a prefix of %s", (cmd) => {
+    const targets = [
+      { slug: "foo", worktree: "/x/flow-worktrees.noindex/flow-foo" },
+    ];
+    expect(select(quoted(cmd), targets)).toHaveLength(0);
+  });
+
+  it.each([
     "flow ls | grep vitest5-vite-upgrade",
     "until gh pr checks 412 --watch; do sleep 5; done",
     `ls ${HOME}/scratch/vitest5-vite-upgrade.json`,
