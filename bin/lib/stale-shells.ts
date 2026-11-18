@@ -69,7 +69,7 @@ export function toolShellCommand(command: string): string | null {
   return u ? u[1] : null;
 }
 
-function startsFlowHelper(cmd: string): boolean {
+function runsFlowHelper(cmd: string): boolean {
   const statements = cmd
     .replace(/\\012/g, "\n")
     .split(/&&|\|\||[;|\n(){}]/)
@@ -206,7 +206,7 @@ export function selectStaleShells(
       continue;
     }
     const cmd = toolShellCommand(row.command);
-    if (cmd === null || startsFlowHelper(cmd)) continue;
+    if (cmd === null || runsFlowHelper(cmd)) continue;
     const refs = referencedPaths(cmd, opts.home, opts.stateDir);
     if (refs.length === 0 || !refs.every(opts.matches)) continue;
     out.push({
