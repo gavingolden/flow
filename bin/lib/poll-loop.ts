@@ -129,14 +129,18 @@ function seqLoopOverCap(l: Loop): boolean {
   );
 }
 
-function loopBounded(l: Loop): boolean {
+/** `code` blanks `$(date +%s)` inside double quotes, so the deadline test reads the original text. */
+function loopBounded(l: Loop, originalSpan: string): boolean {
   const span = `${l.cond} ${l.body}`;
   if (/\bflow-(?:ci-)?wait\b/.test(span)) return true;
   if (l.kind === "for") {
     if (/^\s*\(\(\s*[^;]*;\s*;/.test(l.cond)) return false;
     return true;
   }
-  if (/\bSECONDS\b|\bdate\s+\+%s\b/.test(span) && NUM_CMP.test(span))
+  if (
+    /\bSECONDS\b|\bdate\s+\+%s\b/.test(originalSpan) &&
+    NUM_CMP.test(originalSpan)
+  )
     return true;
   if (compareVars(l.cond).some((v) => assignedIn(l.body, v))) return true;
   const exits = /\b(?:break|exit|return)\b/.test(l.body);
@@ -155,6 +159,31 @@ function pipedOrRedirected(code: string, l: Loop): boolean {
   return code[b] === "|" || code[a] === "<";
 }
 
+const SHELL_OWNER = /(?:^|[\s;&|(])(?:\S*\/)?(?:sh|bash|zsh)\b/;
+
+/** Heredoc bodies nothing runs (fed to `cat`/`tee`, not to a shell). */
+function inertHeredocs(original: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const re = /(?<!<)<<(-?)\s*(['"]?)([A-Za-z_]\w*)\2/g;
+  for (let m = re.exec(original); m; m = re.exec(original)) {
+    const lineStart = original.lastIndexOf("\n", m.index) + 1;
+    let segStart = m.index;
+    while (segStart > lineStart && !/[;&|(]/.test(original[segStart - 1]!))
+      segStart--;
+    if (SHELL_OWNER.test(original.slice(segStart, m.index))) continue;
+    const bodyStart = original.indexOf("\n", m.index);
+    if (bodyStart === -1) continue;
+    const close = new RegExp(`^${m[1] ? "\\t*" : ""}${m[3]}[ \\t]*$`, "m").exec(
+      original.slice(bodyStart + 1),
+    );
+    const end = close
+      ? bodyStart + 1 + close.index + close[0].length
+      : original.length;
+    ranges.push([bodyStart + 1, end]);
+  }
+  return ranges;
+}
+
 const WRAPPED_SCRIPT =
   /(?:^|[\s;&|(])(?:\S*\/)?(?:sh|bash|zsh)\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*c\s+'([^']*)'/g;
 
@@ -165,13 +194,16 @@ export function unboundedPollLoop(command: string, depth = 0): boolean {
   const literalDeadline = [...code.matchAll(/\bSECONDS\s*\+\s*(\d+)/g)].some(
     (m) => Number(m[1]) > WAIT_MAX_SEC_CAP,
   );
+  const inert = inertHeredocs(original);
   for (const l of loops) {
+    if (inert.some(([a, b]) => l.start >= a && l.start < b)) continue;
     if (!sleeps(code.slice(l.start, l.end), original.slice(l.start, l.end)))
       continue;
     if (pipedOrRedirected(code, l)) continue;
     const wrap = wrapperBefore(code, l.start);
     if (wrap.overCap || seqLoopOverCap(l) || literalDeadline) return true;
-    if (wrap.bounded || loopBounded(l)) continue;
+    if (wrap.bounded || loopBounded(l, original.slice(l.start, l.end)))
+      continue;
     return true;
   }
   if (depth >= 2) return false;

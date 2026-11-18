@@ -23,6 +23,14 @@ describe("unboundedPollLoop — refused", () => {
     ],
     ["a /bin/sleep poll", "while ! test -f x; do /bin/sleep 3; done"],
     [
+      "a loop in a heredoc fed to bash",
+      "bash <<'EOF'\nuntil [ -f x ]; do sleep 20; done\nEOF",
+    ],
+    [
+      "a jq-substituted phase poll with no deadline",
+      'until [ "$(jq -r .phase f)" = merged ]; do sleep 20; done',
+    ],
+    [
       "an over-cap SECONDS deadline",
       "end=$((SECONDS+864000)); until test -f x; do [ $SECONDS -lt $end ] || exit 3; sleep 5; done",
     ],
@@ -91,6 +99,22 @@ describe("unboundedPollLoop — allowed", () => {
     ],
     ["a loop with no sleep", "while read l; do echo $l; done < f"],
     ["quoted loop text", `echo "until x; do sleep 1; done"`],
+    [
+      "a date +%s deadline inside double-quoted substitutions",
+      'end=$(( $(date +%s) + 300 )); while [ "$(date +%s)" -lt "$target" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 10; done',
+    ],
+    [
+      "a kill -0 loop with a date +%s deadline",
+      'P=$(cat t2.pid); end=$(( $(date +%s) + 420 )); while kill -0 "$P" 2>/dev/null && [ "$(date +%s)" -lt "$end" ]; do sleep 15; done',
+    ],
+    [
+      "an until loop with an in-body date +%s deadline exit",
+      'end=$(( $(date +%s) + 1500 )); until [ -s "$W/.flow-tmp/scout.md" ]; do [ "$(date +%s)" -ge "$end" ] && { echo deadline; exit 1; }; sleep 10; done',
+    ],
+    [
+      "a loop written to a file by a cat heredoc",
+      "cat > x.sh <<'EOF'\nwhile true; do sleep 20; done\nEOF",
+    ],
     ["a finite for-in list with sleep", "for f in a b c; do sleep 1; done"],
   ])("should allow %s", (_n, cmd) => {
     expect(unboundedPollLoop(cmd)).toBe(false);
