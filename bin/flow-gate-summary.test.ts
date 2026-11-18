@@ -1669,7 +1669,12 @@ describe("run (end-to-end CLI)", () => {
     const ni = path.join(tmpRoot, "ni.txt");
     const vi_ = path.join(tmpRoot, "vi.txt");
     fs.writeFileSync(am, "- After merge: run `flow manage` window\n");
-    fs.writeFileSync(ni, "- Check `flow-foo` works\n");
+    fs.writeFileSync(
+      ni,
+      JSON.stringify([
+        { item: "Check `flow-foo` works", name: "flow-foo", kind: "helper" },
+      ]),
+    );
     fs.writeFileSync(vi_, "- Check `flow-foo` works\n");
     const original = process.stdout.write.bind(process.stdout);
     let captured = "";
@@ -3151,17 +3156,77 @@ describe("after-merge rows", () => {
 
   it("gated pm names the runnable command for a needs-install flow verb", () => {
     const out = gated({
-      needsInstallItems: ["Check `flow manage` opens"],
+      needsInstallItems: [
+        { item: "Check `flow manage` opens", name: "manage", kind: "verb" },
+      ],
       validationItems: ["Check `flow manage` opens"],
     });
     expect(out).toContain("run `bun bin/flow manage` in the worktree");
   });
 
   it("gated pm labels needs-install items", () => {
-    const out = gated({ needsInstallItems: ["Run `npm run x`"] });
+    const out = gated({ needsInstallItems: [{ item: "Run `npm run x`" }] });
     expect(out).toContain(
       "  - Run `npm run x` — needs this branch installed: mark it `After merge:` or run it from the branch → https://github.com/org/repo/pull/9",
     );
+  });
+
+  it("gated pm and dev name the new skill, not the existing verb the step quotes", () => {
+    const item = "Run `flow status` then invoke /flow-new-thing";
+    for (const lens of ["pm", "dev"]) {
+      const out = gated({
+        lens,
+        validationItems: [item],
+        needsInstallItems: [{ item, name: "flow-new-thing", kind: "skill" }],
+      });
+      expect(out).toContain("a session loads `/flow-new-thing`");
+      expect(out).not.toContain("bun bin/flow status");
+    }
+  });
+
+  it("a malformed --needs-install-file still renders every item, unlabelled, and names the skip on stderr", () => {
+    const ni = path.join(tmpRoot, "ni-bad.txt");
+    const vi_ = path.join(tmpRoot, "vi-bad.txt");
+    fs.writeFileSync(ni, "- Check `flow-foo` works\n");
+    fs.writeFileSync(vi_, "- Check `flow-foo` works\n");
+    const origOut = process.stdout.write.bind(process.stdout);
+    const origErr = process.stderr.write.bind(process.stderr);
+    let out = "";
+    let err = "";
+    process.stdout.write = ((c: unknown) => {
+      out += String(c);
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((c: unknown) => {
+      err += String(c);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const rc = run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--lens",
+          "pm",
+          "--validation-items-file",
+          vi_,
+          "--needs-install-file",
+          ni,
+          "--slug",
+          "gate-badni-test-slug",
+        ],
+        { stateDir: tmpRoot },
+      );
+      expect(rc).toBe(0);
+    } finally {
+      process.stdout.write = origOut;
+      process.stderr.write = origErr;
+    }
+    expect(out).toContain("Check `flow-foo` works");
+    expect(out).not.toContain("needs this branch installed");
+    expect(err).toContain("--needs-install-file is not a JSON list");
   });
 
   it("merged pm adds a MANUAL ACTION row, with the stale line only when the install did not refresh", () => {

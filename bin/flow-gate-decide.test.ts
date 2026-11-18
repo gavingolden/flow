@@ -1417,7 +1417,13 @@ describe("decide() — After merge: items", () => {
   it("lists an unmarked install-dependent item in needsInstall and still gates", () => {
     const r = gate(body("- [ ] Run `flow manage` — claims the window."));
     expect(r.decision).toBe("gated");
-    expect(r.needsInstall).toEqual(["Run `flow manage` — claims the window."]);
+    expect(r.needsInstall).toEqual([
+      {
+        item: "Run `flow manage` — claims the window.",
+        name: "manage",
+        kind: "verb",
+      },
+    ]);
   });
 
   it("stays gated 'opted out' with autoMerge false and only verified items", () => {

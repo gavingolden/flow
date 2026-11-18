@@ -48,7 +48,8 @@
  *                     [--why <one-line reason>]
  *                     [--reason <needs-human-tag>]
  *                     [--validation-items-file <path>]
- *                     [--after-merge-items-file <path>] [--needs-install-file <path>]
+ *                     [--after-merge-items-file <path>]
+ *                     [--needs-install-file <path>]   (gate verdict's `.needsInstall` JSON list)
  *                     [--deferred-file <path>]
  *                     [--signoff-file <path>]   (gate verdict's `.uiSignoff` JSON; gated only)
  *                     [--worktree <path>]
@@ -109,7 +110,11 @@ import {
   buildManualAction,
   buildNeedsAttention,
   installStaleFrom,
+  needsInstallIndex,
+  stripBullet,
   needsInstallLabel,
+  parseNeedsInstall,
+  type NeedsInstallEntry,
   buildUntracked,
   clampTldr,
 } from "./lib/gate-summary-rows";
@@ -165,7 +170,7 @@ export type GateSummaryInputs = {
   /** Verified `After merge:` items the gate excluded (gate verdict `.afterMerge`). */
   afterMergeItems?: string[];
   /** Unmarked items needing this branch installed (gate verdict `.needsInstall`). */
-  needsInstallItems?: string[];
+  needsInstallItems?: NeedsInstallEntry[];
   /** The gate verdict's `uiSignoff`; renders evidence lines under GATED items. */
   signoff?: UiSignoff;
   deferredBlock?: string;
@@ -925,11 +930,7 @@ function renderGated(inputs: GateSummaryInputs): string {
     lines.push(
       `NEXT ACTION: tick each step once validated, then run: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}`,
     );
-    const devNeedsInstall = new Set(
-      (inputs.needsInstallItems ?? []).map((i) =>
-        i.trim().replace(/^[-*]\s+(\[[ x]\]\s+)?/, ""),
-      ),
-    );
+    const devNeedsInstall = needsInstallIndex(inputs.needsInstallItems ?? []);
     for (const item of items) {
       const trimmed = item.trim();
       if (!trimmed) continue;
@@ -937,8 +938,9 @@ function renderGated(inputs: GateSummaryInputs): string {
       // containing "- foo") or as bare text; normalise to the same
       // two-space indent + leading `- ` shape.
       const stripped = trimmed.replace(/^[-*]\s+/, "");
+      const installEntry = devNeedsInstall.get(stripBullet(trimmed));
       lines.push(
-        `  - ${stripped}${devNeedsInstall.has(stripped) ? needsInstallLabel(stripped) : ""}`,
+        `  - ${stripped}${installEntry ? needsInstallLabel(installEntry) : ""}`,
       );
       const ev = evidenceForItem(inputs.signoff, stripped, mode);
       if (ev !== null) lines.push(`    ${ev}`);
@@ -1262,7 +1264,8 @@ export function run(
       "usage: flow-gate-summary --status <merged|gated|needs-human|awaiting-approval|cancelled>\n" +
         "                         [--pr-url <url>] [--why <text>] [--reason <tag>] [--tldr <text>]\n" +
         "                         [--validation-items-file <path>] [--deferred-file <path>]\n" +
-        "                         [--after-merge-items-file <path>] [--needs-install-file <path>]\n" +
+        "                         [--after-merge-items-file <path>]\n" +
+        "                         [--needs-install-file <path>]  (gate verdict's needsInstall JSON list)\n" +
         "                         [--signoff-file <path>]\n" +
         "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n" +
         "                         [--cleanup] [--lens <pm|dev>] [--untracked-file <path>]\n" +
@@ -1282,8 +1285,9 @@ export function run(
   const afterMergeItems = parseValidationItems(
     readFileOrEmpty(parsed.afterMergeItemsFile),
   );
-  const needsInstallItems = parseValidationItems(
+  const needsInstallItems = parseNeedsInstall(
     readFileOrEmpty(parsed.needsInstallFile),
+    (m) => process.stderr.write(m + "\n"),
   );
   const deferredBlock = readFileOrEmpty(parsed.deferredFile);
   const signoff = readSignoff(readFileOrEmpty(parsed.signoffFile)) ?? undefined;

@@ -6,6 +6,7 @@
  */
 
 import { linkUrl, type LinkMode } from "./link";
+import type { InstallOnlyName } from "./install-only-names";
 
 export const TLDR_MAX_WORDS = 35;
 
@@ -37,23 +38,24 @@ export function clampTldr(s: string): ClampedTldr {
  * PR URL as its click target. Omit-when-empty: returns `[]` when there are
  * no items (the caller skips the whole section). Items in `needsInstall`
  * (unmarked steps that name something only an installed branch provides)
- * carry a label naming the fix.
+ * carry a label naming the matched helper, verb or skill.
  */
 export function buildNeedsAttention(
   validationItems: string[],
   prUrl: string | undefined,
   mode: LinkMode = "plain",
-  needsInstall: string[] = [],
+  needsInstall: NeedsInstallEntry[] = [],
 ): string[] {
   const items = validationItems
     .map((i) => i.trim())
     .filter((i) => i.length > 0);
   if (items.length === 0) return [];
-  const install = new Set(needsInstall.map((i) => stripBullet(i.trim())));
+  const install = needsInstallIndex(needsInstall);
   const lines = ["NEEDS ATTENTION:"];
   for (const item of items) {
     const stripped = stripBullet(item);
-    const label = install.has(stripped) ? needsInstallLabel(stripped) : "";
+    const entry = install.get(stripped);
+    const label = entry ? needsInstallLabel(entry) : "";
     const suffix = prUrl ? ` → ${linkUrl(prUrl, mode)}` : "";
     lines.push(`  - ${stripped}${label}${suffix}`);
   }
@@ -63,14 +65,71 @@ export function buildNeedsAttention(
 const NEEDS_INSTALL_LABEL =
   " — needs this branch installed: mark it `After merge:` or run it from the branch";
 
-/** Names the runnable form (`bun bin/…` in the worktree) when the step quotes a flow verb or helper. */
-export function needsInstallLabel(item: string): string {
-  const verb = /`flow ([a-z][\w-]*)/.exec(item);
-  if (verb)
-    return ` — needs this branch installed: run \`bun bin/flow ${verb[1]}\` in the worktree, or mark the step \`After merge:\``;
-  const helper = /`(flow-[a-z][\w-]*)/.exec(item);
-  if (helper)
-    return ` — needs this branch installed: run \`bun bin/${helper[1]}.ts\` in the worktree, or mark the step \`After merge:\``;
+const INSTALL_KINDS: readonly string[] = ["helper", "verb", "skill"];
+
+export type NeedsInstallEntry = {
+  item: string;
+  name?: string;
+  kind?: InstallOnlyName["kind"];
+};
+
+/** Parses the gate verdict's `.needsInstall` JSON list; a malformed file degrades to no labels. */
+export function parseNeedsInstall(
+  raw: string,
+  warn: (msg: string) => void = () => {},
+): NeedsInstallEntry[] {
+  if (!raw.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = null;
+  }
+  if (!Array.isArray(parsed)) {
+    warn(
+      "flow-gate-summary: --needs-install-file is not a JSON list; needs-install labels skipped",
+    );
+    return [];
+  }
+  const out: NeedsInstallEntry[] = [];
+  for (const el of parsed) {
+    if (typeof el === "string") {
+      out.push({ item: el });
+    } else if (
+      el !== null &&
+      typeof el === "object" &&
+      typeof (el as { item?: unknown }).item === "string"
+    ) {
+      const { item, name, kind } = el as Record<string, unknown>;
+      const entry: NeedsInstallEntry = { item: item as string };
+      if (typeof name === "string" && name !== "") entry.name = name;
+      if (typeof kind === "string" && INSTALL_KINDS.includes(kind))
+        entry.kind = kind as InstallOnlyName["kind"];
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
+/** Looks a gated item up by its bullet-stripped text. */
+export function needsInstallIndex(
+  entries: NeedsInstallEntry[],
+): Map<string, NeedsInstallEntry> {
+  return new Map(entries.map((e) => [stripBullet(e.item.trim()), e]));
+}
+
+/** Names the exact runnable form of the matched helper, verb or skill. */
+export function needsInstallLabel(
+  entry: Pick<NeedsInstallEntry, "name" | "kind">,
+): string {
+  const { name, kind } = entry;
+  if (!name) return NEEDS_INSTALL_LABEL;
+  if (kind === "helper")
+    return ` — needs this branch installed: run \`bun bin/${name}.ts\` in the worktree, or mark the step \`After merge:\``;
+  if (kind === "verb")
+    return ` — needs this branch installed: run \`bun bin/flow ${name}\` in the worktree, or mark the step \`After merge:\``;
+  if (kind === "skill")
+    return ` — needs this branch installed: a session loads \`/${name}\` from the installed skills, so mark the step \`After merge:\``;
   return NEEDS_INSTALL_LABEL;
 }
 const GITHUB_MERGE_LINE =
@@ -78,7 +137,7 @@ const GITHUB_MERGE_LINE =
 const STALE_INSTALL_LINE =
   "run flow install --upgrade first — the post-merge install did not refresh";
 
-const stripBullet = (s: string): string =>
+export const stripBullet = (s: string): string =>
   s.replace(/^[-*]\s+(\[[ x]\]\s+)?/, "");
 
 /** True when the follow-ups block shows `flow install` failed or skipped its content refresh. */

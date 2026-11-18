@@ -139,6 +139,13 @@ export function matchInstallDependent(
   return hits.find(isGateEligible) ?? hits[0] ?? null;
 }
 
+/** A needs-install step with the helper, verb or skill that matched it. */
+export type InstallDependentItem = {
+  item: string;
+  name: string;
+  kind: InstallOnlyName["kind"];
+};
+
 const AFTER_MERGE = "After merge: ";
 
 export function partitionAfterMerge(
@@ -148,13 +155,13 @@ export function partitionAfterMerge(
   counted: string[];
   afterMerge: string[];
   unverifiedAfterMerge: string[];
-  needsInstall: string[];
+  needsInstall: InstallDependentItem[];
 } {
   const r = {
     counted: [] as string[],
     afterMerge: [] as string[],
     unverifiedAfterMerge: [] as string[],
-    needsInstall: [] as string[],
+    needsInstall: [] as InstallDependentItem[],
   };
   for (const item of unchecked) {
     const raw = typeof item === "string" ? item : item.text;
@@ -169,7 +176,8 @@ export function partitionAfterMerge(
       }
     } else {
       r.counted.push(raw);
-      if (eligible) r.needsInstall.push(raw);
+      if (eligible)
+        r.needsInstall.push({ item: raw, name: hit.name, kind: hit.kind });
     }
   }
   return r;

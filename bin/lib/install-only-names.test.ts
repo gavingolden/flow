@@ -214,6 +214,30 @@ describe("partitionAfterMerge", () => {
   it("counts an unmarked install-dependent item and lists it in needsInstall", () => {
     const r = partitionAfterMerge([{ text: `- [ ] ${unmarked}` }], names);
     expect(r.counted).toEqual([`- [ ] ${unmarked}`]);
-    expect(r.needsInstall).toEqual([`- [ ] ${unmarked}`]);
+    expect(r.needsInstall).toEqual([
+      { item: `- [ ] ${unmarked}`, name: "manage", kind: "verb" },
+    ]);
+  });
+
+  it("records the new skill, not the existing verb it quotes", () => {
+    const item = "Run `flow status` then invoke /flow-new-thing";
+    const r = partitionAfterMerge(
+      [item],
+      [{ name: "flow-new-thing", kind: "skill", change: "added" }],
+    );
+    expect(r.needsInstall).toEqual([
+      { item, name: "flow-new-thing", kind: "skill" },
+    ]);
+  });
+
+  it("records the new helper, not the existing helper it quotes", () => {
+    const item = "Run `flow-ci-wait` then `flow-gate-x`";
+    const r = partitionAfterMerge(
+      [item],
+      [{ name: "flow-gate-x", kind: "helper", change: "added" }],
+    );
+    expect(r.needsInstall).toEqual([
+      { item, name: "flow-gate-x", kind: "helper" },
+    ]);
   });
 });

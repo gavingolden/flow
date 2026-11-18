@@ -68,6 +68,7 @@ import { addMissingNotRunBox } from "./lib/ui-review-not-run-box";
 import {
   collectInstallNamesSafe,
   partitionAfterMerge,
+  type InstallDependentItem,
   type InstallOnlyName,
 } from "./lib/install-only-names";
 import {
@@ -109,8 +110,8 @@ export type DecisionResult = {
   autoMerge: boolean;
   /** Additive: verified `After merge: ` items excluded from the gate count. */
   afterMerge?: string[];
-  /** Additive: unmarked steps that need this branch installed. */
-  needsInstall?: string[];
+  /** Additive: unmarked steps that need this branch installed, each with the step text plus the matched name and kind. */
+  needsInstall?: InstallDependentItem[];
   /** Additive: the design-review backstop's verdict on an open PR. */
   uiReview?: UiReviewGate;
   /**
