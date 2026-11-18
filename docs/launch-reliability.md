@@ -193,6 +193,8 @@ of claiming the manager started. A build that only pre-fills the launch
 line without submitting would leave launches idle at the input box, which
 is why every not-confirmed message says to press Enter.
 
+Claude Code 2.1.326 added an "Adding a new directory" question for each added folder that is not inside an already-trusted folder. It is answered per session and defaults to "No, exit", so pressing Enter alone closes the session. A flow-self pipeline's skill copy is a new folder every launch, so it asked every time. Trust is inherited by every folder below a trusted one (verified on 2.1.327 three levels deep), so trusting `~/.flow/overlays` once (`cd ~/.flow/overlays && claude`, choose "Yes, I trust this folder", then `/exit`) covers every future skill copy, and `~/.flow/claude-home` needs the same once. flow names the question and its button in every still-starting notice and in `flow manage`, and still neither reads nor writes Claude Code's trust records. Do not trust all of `~/.flow`: it holds config and pipeline state.
+
 ## Verdict
 
 The failure is already mitigated at the diagnosed source: seed delivery

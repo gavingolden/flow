@@ -67,6 +67,7 @@ const tmuxMock = vi.hoisted(() => ({
   setWindowEpic: vi.fn<
     (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
+  capturePaneBySlug: vi.fn<(slug: string) => string>(() => ""),
   FLOW_SESSION: "flow",
   SEED_CORRUPTED_STDERR:
     "seed delivery corrupted — the launch prompt did not arrive intact",
@@ -155,6 +156,7 @@ const runEpicCli = (args: string[], options: EpicOptions = {}) =>
 import { deriveWorktreePath } from "./feature";
 import { reserveWorktreeSlot } from "./worktree-slot";
 import { flowClaudeHome } from "./paths";
+import { tildePath } from "./trust-dialog";
 import {
   readState,
   requestFilePath,
@@ -216,6 +218,7 @@ beforeEach(() => {
     .mockReset()
     .mockReturnValue({ status: "started", stderr: "" });
   tmuxMock.setPaneKind.mockReset().mockReturnValue({ ok: true, stderr: "" });
+  tmuxMock.capturePaneBySlug.mockReset().mockReturnValue("");
 });
 
 // runCreate probes windowExists twice now: the up-front "already exists" guard
@@ -829,8 +832,28 @@ describe("runEpicCli — still starting (launched-not-confirmed)", () => {
     const err = errors.join("\n");
     expect(err).toContain("still starting");
     expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("Yes, add it");
     expect(err).toContain("press Enter");
   };
+
+  it("create: still starting on the add-directory question for claude-home prints the press-down steps, exit 0", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockReturnValue(notConfirmed);
+    tmuxMock.capturePaneBySlug.mockReturnValue(
+      `Adding a new directory:\n${flowClaudeHome()}\n\n❯ No, exit\n  Yes, add it`,
+    );
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:design-thing");
+    const err = errors.join("\n");
+    expect(err).toContain("Yes, add it");
+    expect(err).toContain("No, exit");
+    expect(err).toContain(`cd ${tildePath(flowClaudeHome())} && claude`);
+  });
 
   it("create: exit 0, token printed, no 'created', hint on stderr", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
@@ -1649,6 +1672,7 @@ describe("runEpicCli create --resume", () => {
     const err = errors.join("\n");
     expect(err).toContain("still starting");
     expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("Yes, add it");
     expect(err).toContain("press Enter");
   };
 
@@ -3872,6 +3896,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     const err = errors.join("\n");
     expect(err).toContain("still starting");
     expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("Yes, add it");
     expect(err).toContain("press Enter");
   };
 

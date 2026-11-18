@@ -38,8 +38,10 @@ import {
   SEED_CORRUPTED_STDERR,
   setWindowEpic,
   setPaneKind,
+  capturePaneBySlug,
   type VerifiedLaunchResult,
 } from "./tmux";
+import { detectTrustDialog, trustDialogSteps } from "./trust-dialog";
 import { livenessOf, pidStartEpoch } from "./liveness";
 import {
   readState,
@@ -1421,7 +1423,14 @@ function runFresh(
         "flow feature create: launched; supervisor still starting — attach to verify",
       ),
     );
-    console.error(dim(stillStartingHint(slug)));
+    for (const line of stillStartingHint(
+      slug,
+      capturePaneBySlug(slug),
+      [worktree, flowClaudeHome(), overlay?.addDir].filter(Boolean) as string[],
+      [worktree, overlay?.addDir].filter(Boolean) as string[],
+    )) {
+      console.error(dim(line));
+    }
     // Defensive: surface any stderr rather than silently dropping it.
     if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
@@ -1778,7 +1787,14 @@ function runResume(
         "flow feature resume: launched; supervisor still starting — attach to verify",
       ),
     );
-    console.error(dim(stillStartingHint(slug)));
+    for (const line of stillStartingHint(
+      slug,
+      capturePaneBySlug(slug),
+      [worktree, flowClaudeHome(), overlay?.addDir].filter(Boolean) as string[],
+      [worktree, overlay?.addDir].filter(Boolean) as string[],
+    )) {
+      console.error(dim(line));
+    }
     // Defensive: surface any stderr rather than silently dropping it.
     if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
@@ -2303,9 +2319,27 @@ function buildPlainCommand(
   );
 }
 
-/** Names the likeliest reason a launched window has not confirmed: the folder-trust question holds the start command until answered. */
-export function stillStartingHint(slug: string): string {
-  return `  if Claude Code is asking whether you trust this folder: flow attach ${slug} and choose "Yes, I trust this folder" — it then starts by itself; if the start command sits in the input box, press Enter there`;
+/** Names the likeliest reason a launched window has not confirmed: a trust question holds the start command until answered. Numbered steps when the pane shows one, else one generic line. */
+export function stillStartingHint(
+  slug: string,
+  pane?: string,
+  addedFolders?: readonly string[],
+  perPipelineFolders?: readonly string[],
+): string[] {
+  const dialog = detectTrustDialog(pane ?? "", addedFolders);
+  if (!dialog) {
+    return [
+      `  if Claude Code is asking a trust question: flow attach ${slug}, then choose "Yes, I trust this folder" — or, for "Adding a new directory", press ↓ to "Yes, add it" and Enter (Enter alone exits); to stop it recurring, trust that folder's stable parent once (for a skill copy: cd ~/.flow/overlays && claude); if the start command sits in the input box, press Enter there`,
+    ];
+  }
+  const steps = trustDialogSteps(slug, dialog, {
+    addedFolders,
+    perPipelineFolders,
+  });
+  return [
+    "  if Claude Code is asking a trust question, do this:",
+    ...steps.map((step, i) => `  ${i + 1}. ${step}`),
+  ];
 }
 
 /**

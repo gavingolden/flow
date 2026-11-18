@@ -6,7 +6,6 @@ import {
   awaitManagerCheckIn,
   ensureManagerSettings,
   managerLaunchConsumed,
-  paneShowsTrustMenu,
   parseHeartbeat,
   runManageCli,
   type ManageOptions,
@@ -16,6 +15,8 @@ import { readScope, updateScope } from "./manager-scope";
 import { writeState, type PipelineState } from "./state";
 import { SECRET_FILE_DENY_RULES } from "./secret-deny-rules";
 import { createWindowVerified } from "./tmux";
+import { flowClaudeHome } from "./paths";
+import { tildePath } from "./trust-dialog";
 
 vi.mock("./tmux", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./tmux")>()),
@@ -32,7 +33,13 @@ const TRUST_MENU = `Accessing workspace:
    2. No, exit
 
  Enter to confirm · Esc to cancel`;
-const NO_MENU_TRUST_MENU = TRUST_MENU.replace("❯ 1. Yes", "  1. Yes");
+const ADD_DIR_MENU = `╭──────────────────────────────╮
+│ Adding a new directory:      │
+│ ${flowClaudeHome()}
+│ This session hasn't worked here before. Is this a directory you created or one you trust?
+│ ❯ No, exit
+│   Yes, add it
+╰──────────────────────────────╯`;
 
 let dir: string;
 let home: string;
@@ -339,6 +346,36 @@ describe("runManageCli", () => {
     expect(readManagerRecord(home)).not.toBeNull();
   });
 
+  it("add-directory question: exits 2 with the press-down steps, keeps the record, never says started", () => {
+    const launch = () => ({
+      status: "launched-not-confirmed" as const,
+      stderr: "",
+    });
+    const code = runManageCli(
+      ["x"],
+      opts({ launch, readPane: () => ADD_DIR_MENU }),
+    );
+    const err = errs.join("\n");
+    expect(code).toBe(2);
+    expect(logs.join("\n")).not.toContain("manager started");
+    expect(err).toContain("Yes, add it");
+    expect(err).toContain(`cd ${tildePath(flowClaudeHome())} && claude`);
+    expect(readManagerRecord(home)).not.toBeNull();
+  });
+
+  it("re-run while the add-directory question blocks the manager: prints the same steps", () => {
+    writeManagerRecord(openRecord, home);
+    const code = runManageCli(
+      [],
+      opts({ windowExists: () => true, readPane: () => ADD_DIR_MENU }),
+    );
+    const err = errs.join("\n");
+    expect(code).toBe(2);
+    expect(err).toContain("Yes, add it");
+    expect(err).toContain(`cd ${tildePath(flowClaudeHome())} && claude`);
+    expect(err).not.toContain("has not started yet");
+  });
+
   it("never checks in: exits 2 after the timeout, keeps the window and record", () => {
     const kill = vi.fn(() => true);
     const launch = () => ({
@@ -429,21 +466,6 @@ describe("managerLaunchConsumed", () => {
   });
 });
 
-describe("paneShowsTrustMenu (detector)", () => {
-  it("is true for the trust menu capture", () => {
-    expect(paneShowsTrustMenu(TRUST_MENU)).toBe(true);
-    expect(paneShowsTrustMenu(NO_MENU_TRUST_MENU)).toBe(true);
-  });
-  it("is false for an idle prompt and for a pane echoing the start command without menu lines", () => {
-    expect(paneShowsTrustMenu("❯ ")).toBe(false);
-    expect(
-      paneShowsTrustMenu(
-        "env FLOW_MANAGER=1 claude --add-dir x /flow-manage  # trust folder project",
-      ),
-    ).toBe(false);
-  });
-});
-
 describe("awaitManagerCheckIn", () => {
   const base = { sleep: () => {}, timeoutMs: 2000 };
   it("checks consumed before liveness and the trust menu", () => {
@@ -454,7 +476,30 @@ describe("awaitManagerCheckIn", () => {
         isAlive: () => false,
         readPane: () => TRUST_MENU,
       }),
-    ).toBe("checked-in");
+    ).toEqual({ status: "checked-in" });
+  });
+  it("lets a consumed launch win over a visible add-directory question", () => {
+    expect(
+      awaitManagerCheckIn({
+        ...base,
+        consumed: () => true,
+        isAlive: () => true,
+        readPane: () => ADD_DIR_MENU,
+      }),
+    ).toEqual({ status: "checked-in" });
+  });
+  it("reports the add-directory question as a trust-prompt naming the folder", () => {
+    expect(
+      awaitManagerCheckIn({
+        ...base,
+        consumed: () => false,
+        isAlive: () => true,
+        readPane: () => ADD_DIR_MENU,
+      }),
+    ).toEqual({
+      status: "trust-prompt",
+      dialog: { kind: "add-dir", folder: flowClaudeHome() },
+    });
   });
   it("reports dead before trust-prompt, and timeout otherwise", () => {
     const common = { ...base, consumed: () => false };
@@ -464,13 +509,13 @@ describe("awaitManagerCheckIn", () => {
         isAlive: () => false,
         readPane: () => TRUST_MENU,
       }),
-    ).toBe("dead");
+    ).toEqual({ status: "dead" });
     expect(
       awaitManagerCheckIn({
         ...common,
         isAlive: () => true,
         readPane: () => "",
       }),
-    ).toBe("timeout");
+    ).toEqual({ status: "timeout" });
   });
 });
