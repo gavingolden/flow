@@ -368,13 +368,40 @@ function entryPoints(): string[] {
   );
 }
 
+function hasImportMetaMain(file: string, source: string): boolean {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ts.isMetaProperty(node.expression) &&
+      node.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
+      node.name.text === "main"
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return found;
+}
+
 describe("module-load lint: entry-point guard", () => {
+  it("should not count a comment or string as import.meta.main", () => {
+    expect(
+      hasImportMetaMain(
+        "a.ts",
+        '// import.meta.main\nconst s = "import.meta.main";',
+      ),
+    ).toBe(false);
+    expect(hasImportMetaMain("a.ts", "if (import.meta.main) {}")).toBe(true);
+  });
+
   it("should require `import.meta.main` in every top-level bin script", () => {
     const missing = entryPoints().filter(
-      (f) =>
-        !fs
-          .readFileSync(path.join(ROOT, f), "utf8")
-          .includes("import.meta.main"),
+      (f) => !hasImportMetaMain(f, fs.readFileSync(path.join(ROOT, f), "utf8")),
     );
     expect(missing).toEqual([]);
   });
