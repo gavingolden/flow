@@ -3180,7 +3180,7 @@ describe("after-merge rows", () => {
         needsInstallItems: [{ item, name: "flow-new-thing", kind: "skill" }],
       });
       expect(out).toContain(
-        "run `flow feature create --skills-from <worktree>` to load `/flow-new-thing` from this branch",
+        " — needs this branch installed: run `flow feature create --skills-from <worktree>` to load `/flow-new-thing` from this branch, or mark the step `After merge:`",
       );
       expect(out).not.toContain("bun bin/flow status");
     }
