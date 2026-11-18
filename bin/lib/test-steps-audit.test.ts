@@ -34,6 +34,7 @@ describe("audit", () => {
   it("counts kinds across all PRs", () => {
     const result = audit("owner/repo", prs);
     expect(result.totals.kinds.subjective).toBe(2);
+    expect(result.totals.kinds["after-merge"]).toBe(0);
     expect(result.totals.prs).toBe(2);
   });
 

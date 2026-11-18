@@ -36,7 +36,11 @@ question: are there any **unchecked `- [ ]` items** in the section?
 
 The gate decides:
 
-- **No unchecked items** → auto-merge.
+- **No unchecked items** → auto-merge. One exception: an unchecked
+  `After merge: ` item that names a helper, verb or skill this branch adds
+  (or a skill it changes) is excluded from the count by `flow-gate-decide`
+  and `flow-merge-guard`, which verify the name against the branch diff. An
+  unverified `After merge: ` marker still gates.
 - **Has unchecked items** → gated; surface the checklist to the user.
 - **Has unchecked items, all of them un-run `Browser:` checks** (plus any
   `SUBJECTIVE:` / `DECISION:` judgment items) → `browser-retry`, which is
@@ -93,7 +97,9 @@ which records `phase: gated` itself, and ends. On a
 `gated` verdict it must **not**:
 
 - run `gh pr merge` on the PR on its own authority;
-- reclassify the PR's unchecked Test Steps items to change the verdict —
+- reclassify the PR's unchecked Test Steps items to change the verdict
+  (the diff-verified `After merge: ` exclusion above is the only sanctioned
+  reclassification, and the helpers, not the supervisor, apply it) —
   in particular, relabelling a **functional** manual check (a binary
   pass/fail observation: a popover opens, a button responds, a page
   renders) as **subjective UX** to wave it through is a prohibited move

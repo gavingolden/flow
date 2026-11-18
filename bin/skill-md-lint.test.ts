@@ -7680,7 +7680,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
   });
 
   it("manual-test-rubric.md contains the DECISION and Browser label contracts", () => {
-    for (const label of ["DECISION: ", "Browser: "]) {
+    for (const label of ["DECISION: ", "Browser: ", "After merge: "]) {
       expect(
         manualTestRubricContent.includes(label),
         `manual-test-rubric.md must contain the literal \`${label}\` label — ` +
@@ -7852,6 +7852,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "subjective-missing-view",
       "ticked-no-evidence",
       "post-merge-step",
+      "install-dependent-step",
       "human-only-ticked",
     ]) {
       expect(

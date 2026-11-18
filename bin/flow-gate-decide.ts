@@ -64,6 +64,13 @@ import {
   findUnterminatedHtmlBlockLines,
 } from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
+import { addMissingNotRunBox } from "./lib/ui-review-not-run-box";
+import {
+  collectInstallNamesSafe,
+  partitionAfterMerge,
+  type InstallDependentItem,
+  type InstallOnlyName,
+} from "./lib/install-only-names";
 import {
   collectSubjectiveEvidence,
   summarizeUiReview,
@@ -101,6 +108,10 @@ export type DecisionResult = {
   autoRedriven?: boolean;
   reason: string;
   autoMerge: boolean;
+  /** Additive: verified `After merge: ` items excluded from the gate count. */
+  afterMerge?: string[];
+  /** Additive: unmarked steps that need this branch installed, each with the step text plus the matched name and kind. */
+  needsInstall?: InstallDependentItem[];
   /** Additive: the design-review backstop's verdict on an open PR. */
   uiReview?: UiReviewGate;
   /**
@@ -108,6 +119,8 @@ export type DecisionResult = {
    * guard calls): per-open-`SUBJECTIVE:` evidence the GATED render prints.
    */
   uiSignoff?: UiSignoff;
+  /** Set only when the gate tried to fill in the missing UI review box. */
+  uiReviewBox?: { action: "added" } | { action: "failed"; message: string };
 };
 
 export type GateInputs = {
@@ -121,6 +134,8 @@ export type GateInputs = {
   changedFiles?: string[] | null;
   changedSinceReview?: string[] | null;
   uiCritiqueEnabled?: boolean;
+  /** Install-only names the branch adds; absent/null ⇒ fail-closed (counted). */
+  installNames?: InstallOnlyName[] | null;
 };
 
 const HEADING_RE = /^## Test Steps[ \t]*$/m;
@@ -222,7 +237,26 @@ export function parseTestStepsSection(
   for (let i = 0; i < sectionLines.length; i++) {
     if (trapped.has(i)) continue;
     const m = sectionLines[i].match(/^\s*-\s+\[ \]\s+(.*\S)\s*$/);
-    if (m) uncheckedItems.push(m[1]);
+    if (!m) continue;
+    // Fold wrapped continuation lines of an `After merge: ` item, as
+    // parseTestSteps does, so the lint and the gate verify the same text.
+    // Other items keep their first line (SUBJECTIVE ones carry image lines).
+    const parts = [m[1]];
+    for (
+      let j = i + 1;
+      m[1].startsWith("After merge: ") && j < sectionLines.length;
+      j++
+    ) {
+      const next = sectionLines[j];
+      if (
+        trapped.has(j) ||
+        !/^\s+\S/.test(next) ||
+        /^\s*-\s+\[( |x|X)\]\s+/.test(next)
+      )
+        break;
+      parts.push(next.trim());
+    }
+    uncheckedItems.push(parts.join(" "));
   }
 
   if (uncheckedItems.length === 0) return { kind: "no-unchecked" };
@@ -367,6 +401,42 @@ function decideTestSteps(
       autoMerge,
     };
   }
+  const part = partitionAfterMerge(
+    section.uncheckedItems,
+    inputs.installNames ?? null,
+  );
+  const extras: Pick<DecisionResult, "afterMerge" | "needsInstall"> = {
+    ...(part.afterMerge.length > 0 ? { afterMerge: part.afterMerge } : {}),
+    ...(part.needsInstall.length > 0
+      ? { needsInstall: part.needsInstall }
+      : {}),
+  };
+  if (part.counted.length === 0) {
+    if (trappedItems.length > 0 || !autoMerge) {
+      return {
+        decision: "gated",
+        prState: state,
+        prUrl: url,
+        validationItems: [],
+        reason:
+          (trappedItems.length > 0
+            ? "trapped test-step item(s) cannot be verified"
+            : "auto-merge opted out (--no-auto-merge)") + trappedSuffix,
+        autoMerge,
+        ...extras,
+      };
+    }
+    return {
+      decision: "auto-merge",
+      prState: state,
+      prUrl: url,
+      reason:
+        `only verified After merge: item(s) remain (${part.afterMerge.length}); auto-merge` +
+        trappedSuffix,
+      autoMerge,
+      ...extras,
+    };
+  }
   // Browser items nobody ran (plus judgment items) are a pause, not a
   // dead end. Needs a worktree to read evidence from and a local head to
   // judge its freshness; without both, today's `gated` stands.
@@ -377,9 +447,7 @@ function decideTestSteps(
       inputs.headSha,
       deps,
     );
-    const others = section.uncheckedItems.filter(
-      (t) => !t.startsWith("Browser: "),
-    );
+    const others = part.counted.filter((t) => !t.startsWith("Browser: "));
     const markerRaw = (deps.readFile ?? defaultReadFile)(
       path.join(inputs.worktree, AUTO_REDRIVE_MARKER),
     );
@@ -394,23 +462,28 @@ function decideTestSteps(
         decision: "browser-retry",
         prState: state,
         prUrl: url,
-        validationItems: section.uncheckedItems,
+        validationItems: part.counted,
         browserItems,
         autoRedriven,
         reason: `${browserItems.length} open Browser item(s) not run to a verdict (${browserItems.map((b) => b.index).join(", ")}); re-drive them before gating`,
         autoMerge,
+        ...extras,
       };
     }
   }
   // has-unchecked → gated
+  const first = part.counted[0];
   return {
     decision: "gated",
     prState: state,
     prUrl: url,
-    validationItems: section.uncheckedItems,
+    validationItems: part.counted,
     reason:
-      (section.uncheckedItems[0] ?? "test steps remaining") + trappedSuffix,
+      (part.unverifiedAfterMerge.includes(first)
+        ? `After merge: step names nothing this branch adds — run it before merge or name the new helper/verb/skill (${first})`
+        : first) + trappedSuffix,
     autoMerge,
+    ...extras,
   };
 }
 
@@ -420,7 +493,7 @@ type GhResult = { stdout: string; stderr: string; exitCode: number };
 export type GhRunner = (argv: string[]) => GhResult;
 
 const defaultGh: GhRunner = (argv) => {
-  const r = spawnSync("gh", argv, { encoding: "utf8" });
+  const r = spawnSync("gh", argv, { encoding: "utf8", timeout: 60_000 });
   return {
     stdout: r.stdout ?? "",
     stderr: r.stderr ?? "",
@@ -531,6 +604,10 @@ export type Deps = {
   readFile?: (p: string) => string | null;
   localHead?: (cwd: string) => string | null;
   uiReview?: UiReviewDeps;
+  installNames?: (
+    worktree: string,
+    base: string | undefined,
+  ) => InstallOnlyName[] | null;
 };
 
 // LOCAL HEAD only, never `gh pr view` (head-sync stall: the PR object can
@@ -598,30 +675,63 @@ export function run(argv: string[], deps: Deps = {}): number {
         ...deps.uiReview,
       })
     : null;
-  const result = decide(
-    {
-      body: fetched.body,
-      state: fetched.state,
-      url: fetched.url,
-      autoMerge,
-      worktree,
-      headSha,
-      ...(ui
-        ? {
-            changedFiles: ui.changedFiles,
-            changedSinceReview: ui.changedSinceReview,
-            uiCritiqueEnabled: ui.enabled,
-          }
-        : {}),
-    },
-    { readFile: deps.readFile },
-  );
-  const uiSignoff = buildUiSignoff(
-    fetched.body,
-    worktree,
-    ui?.log ?? null,
-    result,
-  );
+  let body = fetched.body;
+  // Names are only read when an unchecked item exists: they feed nothing else
+  // and collecting them can `git fetch`.
+  const decideOn = (b: string): DecisionResult => {
+    const installNames =
+      worktree && parseTestStepsSection(b).kind === "has-unchecked"
+        ? (deps.installNames ?? collectInstallNamesSafe)(
+            worktree,
+            fetched.baseRefName ? `origin/${fetched.baseRefName}` : undefined,
+          )
+        : null;
+    return decide(
+      {
+        installNames,
+        body: b,
+        state: fetched.state,
+        url: fetched.url,
+        autoMerge,
+        worktree,
+        headSha,
+        ...(ui
+          ? {
+              changedFiles: ui.changedFiles,
+              changedSinceReview: ui.changedSinceReview,
+              uiCritiqueEnabled: ui.enabled,
+            }
+          : {}),
+      },
+      { readFile: deps.readFile },
+    );
+  };
+  let result = decideOn(body);
+  const gate = result.uiReview;
+  if (
+    result.decision === "gated" &&
+    gate &&
+    !gate.satisfied &&
+    !gate.stale &&
+    state?.pr === parsed.pr
+  ) {
+    const added = addMissingNotRunBox({
+      pr: parsed.pr,
+      ui: gate,
+      log: ui?.log ?? null,
+      gh,
+    });
+    if (added.kind === "written") {
+      body = added.body;
+      result = decideOn(body);
+      result.reason += ` (added the "UI review did not run" box to the PR's Test Steps — re-check any box you ticked in the last minute)`;
+      result.uiReviewBox = { action: "added" };
+    } else if (added.kind === "error") {
+      result.reason += ` (could not add the UI review box to the PR body: ${added.message} — say merge to retry adding it, or to override without it)`;
+      result.uiReviewBox = { action: "failed", message: added.message };
+    }
+  }
+  const uiSignoff = buildUiSignoff(body, worktree, ui?.log ?? null, result);
   process.stdout.write(
     JSON.stringify(uiSignoff ? { ...result, uiSignoff } : result) + "\n",
   );

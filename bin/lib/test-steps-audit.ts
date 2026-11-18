@@ -17,6 +17,7 @@ const ALL_CODES = {
   "subjective-missing-view": true,
   "ticked-no-evidence": true,
   "post-merge-step": true,
+  "install-dependent-step": true,
   "human-only-ticked": true,
   "browser-shape": true,
   "browser-over-bound": true,
@@ -60,6 +61,7 @@ export function audit(repo: string, prs: PrRow[]) {
     browser: 0,
     subjective: 0,
     decision: 0,
+    "after-merge": 0,
     prose: 0,
   };
   let items = 0;

@@ -22,6 +22,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { rewriteBody } from "../flow-inject-evidence";
+import { ensureBranchBin } from "./branch-bin";
 import { parseTestSteps, type StepKind } from "./test-steps-parse";
 import { hasLocalImageRefs } from "./review-screenshots";
 
@@ -32,9 +33,15 @@ export type ExecResult = {
   timedOut?: boolean;
 };
 
+type ExecOpts = {
+  cwd?: string;
+  timeoutMs?: number;
+  env?: Record<string, string | undefined>;
+};
+
 export type ExecFn = (
   argv: string[],
-  opts?: { cwd?: string; timeoutMs?: number },
+  opts?: ExecOpts,
 ) => ExecResult | Promise<ExecResult>;
 
 export type RunEnvelope = {
@@ -63,11 +70,12 @@ const MARK = "\u0001";
  */
 export function defaultExec(
   argv: string[],
-  opts?: { cwd?: string; timeoutMs?: number },
+  opts?: ExecOpts,
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), {
       cwd: opts?.cwd,
+      ...(opts?.env ? { env: opts.env } : {}),
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -233,6 +241,15 @@ export async function runTestSteps(opts: {
     return envelope;
   }
 
+  const branchBin = ensureBranchBin(opts.worktree);
+  const stepEnv = branchBin
+    ? {
+        env: {
+          ...process.env,
+          PATH: `${branchBin}:${process.env.PATH ?? ""}`,
+        },
+      }
+    : {};
   const start = now();
   const single = candidates.length === 1;
   let body = original;
@@ -249,6 +266,7 @@ export async function runTestSteps(opts: {
     const run = await exec(["bash", "-c", command], {
       cwd: opts.worktree,
       timeoutMs: itemSec * 1000,
+      ...stepEnv,
     });
     // Cut by the shared budget, not the item's own cap: not a test failure.
     if (run.timedOut && !single && itemSec < ITEM_TIMEOUT_SEC) {

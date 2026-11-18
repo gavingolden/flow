@@ -94,6 +94,11 @@ import {
   type UiReviewDeps,
   type UiReviewGate,
 } from "./lib/ui-review-gate";
+import {
+  collectInstallNamesSafe,
+  partitionAfterMerge,
+  type InstallOnlyName,
+} from "./lib/install-only-names";
 import { isValidSlug } from "./lib/slug";
 import { resolveEpicBinding, type EpicBinding } from "./lib/epic-binding";
 import { epicStatusRelPath } from "./lib/epic-metadata-commit";
@@ -162,6 +167,7 @@ export function evaluateMergeGuard(
   pr: number,
   nowMs: number,
   uiReview?: UiReviewGate,
+  installNames?: InstallOnlyName[] | null,
 ): GuardResult {
   const parsed = parseTestStepsSection(body);
   // An unreviewed UI diff counts as one unchecked item: only a fresh
@@ -198,7 +204,28 @@ export function evaluateMergeGuard(
 
   // has-unchecked: there is unverified work. Block unless a fresh
   // gate-override token authorises the merge.
-  const uncheckedItems = section.uncheckedItems;
+  // Same partition as flow-gate-decide: verified `After merge: ` items are
+  // not counted; null/absent names fail closed (every item counts).
+  const counted = partitionAfterMerge(
+    section.uncheckedItems,
+    installNames ?? null,
+  ).counted;
+  const uncheckedItems =
+    counted.length === 0 &&
+    parsed.kind === "has-unchecked" &&
+    uiReview &&
+    !uiReview.satisfied
+      ? [uiReviewItem(uiReview)]
+      : counted;
+  if (uncheckedItems.length === 0) {
+    return {
+      decision: "clear",
+      uncheckedItems: [],
+      reason:
+        "only verified After merge: Test Steps items remain; clear to merge",
+      overrideApplied: false,
+    };
+  }
   const baseReason = `${uncheckedItems.length} unchecked Test Steps item(s) remain`;
   if (tokenIsFresh(state, pr, nowMs)) {
     return {
@@ -285,6 +312,11 @@ export type Deps = {
   runMerge?: (pr: number, cwd: string) => { exitCode: number; stderr: string };
   /** Test seam for the design-review backstop's git and config reads. */
   uiReview?: UiReviewDeps;
+  /** Test seam for the install-only-name collection (reads the branch diff). */
+  installNames?: (
+    worktree: string,
+    base: string | undefined,
+  ) => InstallOnlyName[] | null;
   /** Test seam for the epic-binding scan; defaults beside `stateDir`. */
   epicsDir?: string;
   /** Test seam: reads the epic board as committed at the PR's GitHub-side head. */
@@ -404,10 +436,12 @@ export function evaluateMergePreconditions(input: {
   checks: CheckState;
   nowMs: number;
   uiReview?: UiReviewGate;
+  installNames?: InstallOnlyName[] | null;
 }):
   | { ok: true; overrideApplied: boolean; uncheckedCount: number }
   | { ok: false; reason: string; uncheckedItems?: string[] } {
-  const { body, prState, state, pr, checks, nowMs, uiReview } = input;
+  const { body, prState, state, pr, checks, nowMs, uiReview, installNames } =
+    input;
   if (!state) return { ok: false, reason: "no-state" };
   if (state.pr !== pr) {
     return {
@@ -417,7 +451,14 @@ export function evaluateMergePreconditions(input: {
   }
   if (prState !== "OPEN")
     return { ok: false, reason: `pr-not-open: ${prState}` };
-  const verdict = evaluateMergeGuard(body, state, pr, nowMs, uiReview);
+  const verdict = evaluateMergeGuard(
+    body,
+    state,
+    pr,
+    nowMs,
+    uiReview,
+    installNames,
+  );
   if (verdict.decision !== "clear") {
     return {
       ok: false,
@@ -719,6 +760,12 @@ function mergePr(
           deps.uiReview,
         )
       : undefined,
+    installNames: installNamesFor(
+      state.worktree,
+      fetched.baseRefName,
+      deps.installNames,
+      fetched.body,
+    ),
   });
   if (!pre.ok) return refuse(pre.reason, pre.uncheckedItems);
 
@@ -811,6 +858,20 @@ function recordOverrideToken(
   return 0;
 }
 
+/** No worktree ⇒ null (fail-closed): the branch diff cannot be read. */
+function installNamesFor(
+  worktree: string | null | undefined,
+  baseRefName: string | undefined,
+  collect: Deps["installNames"] = collectInstallNamesSafe,
+  body = "",
+): InstallOnlyName[] | null {
+  // Lazy: the names only matter when an unchecked item exists.
+  if (parseTestStepsSection(body).kind !== "has-unchecked") return null;
+  return worktree
+    ? collect(worktree, baseRefName ? `origin/${baseRefName}` : undefined)
+    : null;
+}
+
 function checkGuard(
   pr: number,
   slug: string,
@@ -818,6 +879,7 @@ function checkGuard(
   gh: GhRunner,
   now: () => number,
   uiDeps?: UiReviewDeps,
+  installNamesDep?: Deps["installNames"],
 ): number {
   const fetched = fetchPrInputs(pr, gh);
   if (fetched.kind === "error") {
@@ -857,7 +919,19 @@ function checkGuard(
         uiDeps,
       )
     : undefined;
-  const result = evaluateMergeGuard(fetched.body, state, pr, now(), uiReview);
+  const result = evaluateMergeGuard(
+    fetched.body,
+    state,
+    pr,
+    now(),
+    uiReview,
+    installNamesFor(
+      state?.worktree,
+      fetched.baseRefName,
+      installNamesDep,
+      fetched.body,
+    ),
+  );
   // Out of `gated` (the gate-override path), `merging` lands only when the
   // guard clears — a blocked override must leave the pipeline visibly gated,
   // not parked at `merging` with nothing merging.
@@ -937,7 +1011,15 @@ export function run(argv: string[], deps: Deps = {}): number {
     }
     return recordOverrideToken(parsed.pr, slug, stateDir, now);
   }
-  return checkGuard(parsed.pr, slug, stateDir, gh, now, deps.uiReview);
+  return checkGuard(
+    parsed.pr,
+    slug,
+    stateDir,
+    gh,
+    now,
+    deps.uiReview,
+    deps.installNames,
+  );
 }
 
 if (import.meta.main) {

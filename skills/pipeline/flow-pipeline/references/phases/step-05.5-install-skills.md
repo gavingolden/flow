@@ -43,7 +43,7 @@ if [ -n "$ADDED" ]; then
   # Post-merge follow-up: re-link the home install against canonical main (--auto + allowlist ⇒ step 11 runs it on MERGED).
   flow-followups add \
     --command "flow install --upgrade" \
-    --reason "new skills/agents added on this branch — re-symlink home install post-merge" \
+    --reason "re-link the home install to merged main so this branch's new helpers and skills are live" \
     --auto \
     --registered-by "flow-pipeline:step-5.5"
 else

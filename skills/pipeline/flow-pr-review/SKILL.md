@@ -1109,7 +1109,8 @@ When 8c's second self-check identifies an author-prose item that maps to a
 mechanical assertion (`test -f`, `grep -q`, `[ "$(cat X)" = "Y" ]`,
 `[ "$(jq -r '.field' X)" = "Y" ]`), promote it inline. An item whose text begins
 with the literal `SUBJECTIVE: ` prefix is excluded from promotion — it is a
-human-only aesthetic sign-off with no mechanical assertion to script. The author's `- [ ]`
+human-only aesthetic sign-off with no mechanical assertion to script. Never promote, run, or tick an
+`After merge: ` item either: it needs the merged code installed and is handed back after merge. The author's `- [ ]`
 wording in the PR body **stays as written** — only the box-tick + evidence
 injection runs. Body wording rewrites are a Step 11e responsibility, never 8c's. This split keeps the audit honest: reviewers
 always see what the author *claimed* alongside the evidence block showing what
@@ -1496,7 +1497,7 @@ appearance change whose Test Steps contain **no `SUBJECTIVE: ` step** is also a 
 finding (the page can auto-merge with no human aesthetic sign-off) — detection is reviewer
 judgment guided by the rubric's include-vs-exempt test. This folds into the Testability
 criterion above; no new fail subtype. Defer to `references/manual-test-rubric.md`
-("Subjective checks"). After the 8c checklist run, also run `flow-test-steps-lint --body-file .flow-tmp/body.md --phase review` (tolerant named skip when the helper is absent) and map each finding onto the subtypes above per the rubric's `## Mechanical lint` table — advisory input to 11c/11d, never a pause; `subjective-mixed` is a suggestion and is never split automatically.
+("Subjective checks"). After the 8c checklist run, also run `flow-test-steps-lint --body-file .flow-tmp/body.md --phase review` (tolerant named skip when the helper is absent) and map each finding onto the subtypes above per the rubric's `## Mechanical lint` table — advisory input to 11c/11d, never a pause; `subjective-mixed` is a suggestion and is never split automatically. An `install-dependent-step` finding is fixed by the hint's rewrite (`bun bin/<helper>.ts` / `bun bin/flow <verb>`) or the `After merge: ` prefix (never for a modified helper; command steps are flagged only for a skill).
 
 A UI wiring change (mounting a new component, wiring a new route, registering a new handler) whose Test Steps are verified solely by import-presence greps (`grep -q 'NewComponent' App.svelte`) — with no component or browser behavioral assertion (Testing Library render test, Playwright spec, chrome-devtools MCP check) — is under-tested; flag as Testability: Fail (shallow). Trivial copy or padding tweaks are exempt. See `references/manual-test-rubric.md` ("UI wiring behavioral assertion") for the rule.
 
@@ -1809,7 +1810,8 @@ nothing beyond the two fields either way).
 
 If addressing a review comment introduced a side-effect the user must replicate
 locally post-merge (a new helper added to `bin/`, a new env var, a config file
-to delete), register a follow-up:
+to delete), register a follow-up. (A Test Step that needs this branch installed is not a
+follow-up: fix the `install-dependent-step` finding by its hint, or prefix the step `After merge: `.)
 
 ```bash
 flow-followups add \

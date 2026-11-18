@@ -480,6 +480,24 @@ describe("formatVerdict", () => {
     expect(out).toContain("auto-run denied: not in allowlist");
   });
 
+  it("shows the NOT refreshed line under a RAN entry, and nothing for a clean run", () => {
+    const stale = runEntries([allowedAuto], {
+      spawn: () => ({
+        stdout: "linked\nflow: content NOT refreshed (dirty) — pull by hand\n",
+        stderr: "",
+        exitCode: 0,
+      }),
+    });
+    const lines = formatVerdict(stale, false).split("\n");
+    const ran = lines.findIndex((l) => l.includes("RAN"));
+    expect(lines[ran + 1]).toBe(
+      "            flow: content NOT refreshed (dirty) — pull by hand",
+    );
+    expect(
+      formatVerdict(runEntries([allowedAuto], { spawn: okSpawn }), false),
+    ).not.toContain("NOT refreshed");
+  });
+
   it("includes failure tail excerpt", () => {
     const v = runEntries([allowedAuto], {
       spawn: () => ({ stdout: "", stderr: "boom: it broke\n", exitCode: 2 }),

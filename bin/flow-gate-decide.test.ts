@@ -11,6 +11,7 @@ import {
   run,
   type DecisionResult,
 } from "./flow-gate-decide";
+import type { InstallOnlyName } from "./lib/install-only-names";
 
 let stateDir!: string;
 
@@ -1064,16 +1065,22 @@ describe("run() — UI review backstop", () => {
     const sp = path.join(stateDir, "ui.json");
     const st = JSON.parse(fs.readFileSync(sp, "utf8"));
     fs.writeFileSync(sp, JSON.stringify({ ...st, worktree: "/wt" }) + "\n");
-    const gh = vi.fn(() => ({
-      stdout: JSON.stringify({
-        body: "## Test Steps\n\n- [x] done\n",
-        state: "OPEN",
-        url: "https://x/y/pull/7",
-        baseRefName: "release",
-      }),
-      stderr: "",
-      exitCode: 0,
-    }));
+    const gh = vi.fn((argv: string[]) =>
+      argv[1] === "edit"
+        ? { stdout: "", stderr: "HTTP 502", exitCode: 1 }
+        : {
+            stdout: argv.includes("--jq")
+              ? "## Test Steps\n\n- [x] done\n"
+              : JSON.stringify({
+                  body: "## Test Steps\n\n- [x] done\n",
+                  state: "OPEN",
+                  url: "https://x/y/pull/7",
+                  baseRefName: "release",
+                }),
+            stderr: "",
+            exitCode: 0,
+          },
+    );
     const bases: (string | null | undefined)[] = [];
     const writes: string[] = [];
     const spy = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
@@ -1099,6 +1106,187 @@ describe("run() — UI review backstop", () => {
     const r = JSON.parse(writes.join("")) as DecisionResult;
     expect(r.decision).toBe("gated");
     expect(r.uiReview).toMatchObject({ required: true, satisfied: false });
+  });
+});
+
+describe("run() — not-run box", () => {
+  const NOT_RUN = "<!-- flow:ui-review-not-run -->";
+  const BODY = "## Test Steps\n\n- [x] `npm test` — pass\n";
+
+  function runBox(opts: {
+    body?: string;
+    statePr?: number;
+    editStatus?: number;
+    editStderr?: string;
+  }) {
+    seedState("nr", true, opts.statePr ?? 7);
+    const sp = path.join(stateDir, "nr.json");
+    const st = JSON.parse(fs.readFileSync(sp, "utf8"));
+    fs.writeFileSync(sp, JSON.stringify({ ...st, worktree: "/wt" }) + "\n");
+    const body = opts.body ?? BODY;
+    const edits: string[] = [];
+    const gh = vi.fn((argv: string[]) => {
+      if (argv[1] === "edit") {
+        edits.push(
+          fs.readFileSync(argv[argv.indexOf("--body-file") + 1], "utf8"),
+        );
+        return {
+          stdout: "",
+          stderr: opts.editStderr ?? "",
+          exitCode: opts.editStatus ?? 0,
+        };
+      }
+      return {
+        stdout: argv.includes("--jq")
+          ? body
+          : JSON.stringify({
+              body,
+              state: "OPEN",
+              url: "https://x/y/pull/7",
+            }),
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(c.toString());
+      return true;
+    });
+    const exit = run(["7", "--slug", "nr"], {
+      gh,
+      stateDir,
+      localHead: () => "head",
+      readFile: () => null,
+      uiReview: {
+        changedFiles: () => ["src/routes/a/+page.svelte"],
+        home: "/home/none",
+      },
+    });
+    spy.mockRestore();
+    expect(exit).toBe(0);
+    return { edits, result: JSON.parse(writes.join("")) as DecisionResult };
+  }
+
+  it("adds the missing box for a UI diff with no review record (econ-data #1241)", () => {
+    const { edits, result } = runBox({});
+    expect(edits).toHaveLength(1);
+    const lines = edits[0]
+      .split("\n")
+      .filter((l) => l.includes("DECISION:") && l.includes(NOT_RUN));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^- \[ \] DECISION:/);
+    expect(result.decision).toBe("gated");
+    expect(result.reason).toContain('added the "UI review did not run" box');
+    expect(result.uiReviewBox).toEqual({ action: "added" });
+    expect(result.uiReview).toMatchObject({ satisfied: true });
+    expect(result.validationItems).toEqual([
+      expect.stringContaining(
+        "DECISION: the UI review did not run (no UI review record for this PR)",
+      ),
+    ]);
+  });
+
+  it("auto-merges and edits nothing when the box is already ticked", () => {
+    const { edits, result } = runBox({
+      body: `${BODY}- [x] DECISION: the UI review did not run (x) ${NOT_RUN}\n`,
+    });
+    expect(edits).toEqual([]);
+    expect(result.decision).toBe("auto-merge");
+    expect(result.uiReviewBox).toBeUndefined();
+  });
+
+  it("keeps the gate and says how to retry when the edit fails", () => {
+    const { edits, result } = runBox({
+      editStatus: 1,
+      editStderr: "HTTP 502\nmore",
+    });
+    expect(edits).toHaveLength(1);
+    expect(result.decision).toBe("gated");
+    expect(result.validationItems?.[0]).toContain("DECISION:");
+    expect(result.reason).toContain(
+      "could not add the UI review box to the PR body",
+    );
+    expect(result.reason).toContain(
+      "say merge to retry adding it, or to override without it",
+    );
+    expect(result.uiReviewBox).toEqual({
+      action: "failed",
+      message: "HTTP 502",
+    });
+  });
+
+  it("does not edit on a browser-retry verdict", () => {
+    const { edits, result } = runBox({
+      body: '## Test Steps\n\n- [ ] Browser: on /a, click A — expect "A"\n',
+    });
+    expect(result.decision).toBe("browser-retry");
+    expect(edits).toEqual([]);
+  });
+
+  it("does not edit a PR other than the pipeline's own", () => {
+    const { edits, result } = runBox({ statePr: 99 });
+    expect(result.decision).toBe("gated");
+    expect(edits).toEqual([]);
+  });
+});
+
+describe("run() — install-only names wiring", () => {
+  const AM =
+    "## Test Steps\n\n- [ ] After merge: run `flow manage` and read it.\n";
+  function runAm(body: string, worktree: boolean) {
+    seedState("im", true, 9);
+    const sp = path.join(stateDir, "im.json");
+    const st = JSON.parse(fs.readFileSync(sp, "utf8"));
+    if (worktree)
+      fs.writeFileSync(sp, JSON.stringify({ ...st, worktree: "/wt" }) + "\n");
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body,
+        state: "OPEN",
+        url: "https://x/y/pull/9",
+        baseRefName: "release",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const seen: [string, string | undefined][] = [];
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(c.toString());
+      return true;
+    });
+    run(["9", "--slug", "im"], {
+      gh,
+      stateDir,
+      localHead: () => "head",
+      readFile: () => null,
+      uiReview: { changedFiles: () => [], home: "/home/none" },
+      installNames: (wt, base) => {
+        seen.push([wt, base]);
+        return [{ name: "manage", kind: "verb", change: "added" }];
+      },
+    });
+    spy.mockRestore();
+    return { seen, r: JSON.parse(writes.join("")) as DecisionResult };
+  }
+
+  it("passes the worktree and origin/<base> and auto-merges a verified item", () => {
+    const { seen, r } = runAm(AM, true);
+    expect(seen).toEqual([["/wt", "origin/release"]]);
+    expect(r.decision).toBe("auto-merge");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("never reads names without a worktree, and gates", () => {
+    const { seen, r } = runAm(AM, false);
+    expect(seen).toEqual([]);
+    expect(r.decision).toBe("gated");
+  });
+
+  it("does not read names when nothing is unchecked", () => {
+    const { seen } = runAm("## Test Steps\n\n- [x] done\n", true);
+    expect(seen).toEqual([]);
   });
 });
 
@@ -1171,5 +1359,105 @@ describe("run() — uiSignoff evidence", () => {
       autoMerge: true,
     });
     expect("uiSignoff" in r).toBe(false);
+  });
+});
+
+describe("decide() — After merge: items", () => {
+  const NAMES: InstallOnlyName[] = [
+    { name: "manage", kind: "verb", change: "added" },
+  ];
+  const VERIFIED = "- [ ] After merge: run `flow manage` and read the window.";
+  const UNVERIFIED = "- [ ] After merge: run `flow other` and read it.";
+  const body = (...lines: string[]) => `## Test Steps\n\n${lines.join("\n")}\n`;
+  const gate = (
+    b: string,
+    installNames: InstallOnlyName[] | null | undefined = NAMES,
+    over: Record<string, unknown> = {},
+  ) =>
+    decide({
+      body: b,
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+      installNames,
+      ...over,
+    });
+
+  it("auto-merges when only verified After merge items remain and lists them", () => {
+    const r = gate(body(VERIFIED));
+    expect(r.decision).toBe("auto-merge");
+    expect(r.afterMerge).toEqual([VERIFIED.slice(6)]);
+  });
+
+  it("gates a verified item alongside an ordinary unchecked one, keeping afterMerge", () => {
+    const r = gate(body(VERIFIED, "- [ ] Run `npm run x` — ok"));
+    expect(r.decision).toBe("gated");
+    expect(r.validationItems).toEqual(["Run `npm run x` — ok"]);
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("gates an unverified marker and names why", () => {
+    const r = gate(body(UNVERIFIED));
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("names nothing this branch adds");
+    expect(r.afterMerge).toBeUndefined();
+  });
+
+  it("counts the item when names are null or absent (fail-closed)", () => {
+    expect(gate(body(VERIFIED), null).decision).toBe("gated");
+    const r = decide({
+      body: body(VERIFIED),
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+    });
+    expect(r.decision).toBe("gated");
+  });
+
+  it("lists an unmarked install-dependent item in needsInstall and still gates", () => {
+    const r = gate(body("- [ ] Run `flow manage` — claims the window."));
+    expect(r.decision).toBe("gated");
+    expect(r.needsInstall).toEqual([
+      {
+        item: "Run `flow manage` — claims the window.",
+        name: "manage",
+        kind: "verb",
+      },
+    ]);
+  });
+
+  it("stays gated 'opted out' with autoMerge false and only verified items", () => {
+    const r = gate(body(VERIFIED), NAMES, { autoMerge: false });
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("opted out");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("gates when only verified After merge items remain but items are trapped", () => {
+    const r = gate(body(VERIFIED, "<details>", "- [ ] hidden"));
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("trapped");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("folds a wrapped After merge item so the install name on line 2 verifies", () => {
+    const r = gate(
+      body(
+        "- [ ] After merge: confirm the new verb works:",
+        "  run `flow manage`.",
+      ),
+    );
+    expect(r.decision).toBe("auto-merge");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("excludes a verified After merge item from the browser-retry others check", () => {
+    const r = gate(
+      body(VERIFIED, '- [ ] Browser: on /a, click A — expect "A"'),
+      NAMES,
+      { worktree: "/wt", headSha: "abc" },
+    );
+    expect(r.decision).toBe("browser-retry");
+    expect(r.afterMerge).toHaveLength(1);
   });
 });

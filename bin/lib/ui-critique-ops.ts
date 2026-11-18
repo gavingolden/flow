@@ -29,9 +29,9 @@ import {
 import {
   renderUiReview,
   UI_REVIEW_CLOSE,
-  uiReviewDecisionItem,
-  upsertUiReview,
+  uiReviewDecisionItems,
 } from "./ui-critique-render";
+import { upsertUiReview } from "./ui-review-body";
 import { stripLocalImageRefs } from "./review-screenshots";
 import type { SectionShot } from "./ui-driver-schema";
 
@@ -322,8 +322,8 @@ export function opRender(f: Flags, deps: OpsDeps): OpResult {
         ? demoted.reason || "recent critique rounds were reverted"
         : null,
   });
-  const decision = uiReviewDecisionItem(log);
-  const next = upsertUiReview(body, section, decision);
+  const items = uiReviewDecisionItems(log);
+  const next = upsertUiReview(body, section, items);
   deps.writeFile(bodyFile, next);
   deps.writeFile(path.join(w, ".flow-tmp", "ui-review.md"), section + "\n");
   if (typeof f["push-copy"] === "string") {
@@ -340,7 +340,7 @@ export function opRender(f: Flags, deps: OpsDeps): OpResult {
       : log.residual.filter((r) => r.severity === "defect" && isGating(r))
           .length,
     persistentDefects: log.persistent.length,
-    decisionAdded: decision !== null,
+    decisionAdded: items.defects !== null || items.notRun !== null,
     signoffFindings: log.signoff?.findings.length ?? 0,
   };
 }

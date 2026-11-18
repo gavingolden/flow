@@ -1,10 +1,8 @@
 /**
- * Renders the marker-wrapped `## UI review` PR section, the single
- * human-sign-off `DECISION:` item for unresolved defects, and upserts both
- * into a PR body without touching any other Test Step.
+ * Renders the marker-wrapped `## UI review` PR section and the human-sign-off
+ * `DECISION:` items (unresolved defects, review did not run). Upserting them
+ * into a PR body lives in `./ui-review-body`.
  */
-import { testStepsSectionBounds } from "../flow-gate-decide";
-import { fencedLineMask } from "./md-block-structure";
 import { isGating, type CritiqueFinding, type LoopLog } from "./ui-critique";
 import {
   cell,
@@ -61,6 +59,7 @@ const PLAIN_REASONS: Record<string, string> = {
     "the UI manifest is outside this worktree, so its test account was not used",
   "no-targets": "the plan names no pages to photograph",
   "non-local-base-url": "the app or login URL is not a local address",
+  "no-review-record": "no UI review record for this PR",
 };
 
 /** Skip and round reasons arrive as helper codes; the PR shows plain words. */
@@ -198,92 +197,21 @@ export function residualDecisionItem(
   return `- [ ] DECISION: accept this UI with ${n} unresolved defect(s) listed under UI review (top: ${top}), or redirect to fix them`;
 }
 
-/**
- * The one human-only item a review leaves: unresolved defects take precedence,
- * else a review the diff required but that could not run asks the owner to
- * accept merging without it.
- */
-export function uiReviewDecisionItem(log: LoopLog): string | null {
-  const defects = residualDecisionItem(
-    log.skip ? [] : log.residual,
-    log.persistent,
-  );
-  if (defects !== null) return defects;
-  if (!notRun(log)) return null;
-  return `- [ ] DECISION: the UI review did not run (${cell(plainReason(log.skip!))}) — merge without a design review of the changed screens, or redirect to fix the cause ${UI_REVIEW_NOT_RUN_MARKER}`;
-}
-
-function findLine(
-  lines: string[],
-  fenced: boolean[],
-  pred: (l: string) => boolean,
-): number {
-  return lines.findIndex((l, i) => !fenced[i] && pred(l));
-}
-
-function replaceBlock(lines: string[], block: string[]): string[] | null {
-  const fenced = fencedLineMask(lines);
-  const from = findLine(lines, fenced, (l) => l === UI_REVIEW_OPEN);
-  if (from < 0) return null;
-  let close = lines.findIndex(
-    (l, i) => i > from && !fenced[i] && l === UI_REVIEW_CLOSE,
-  );
-  if (close < 0) close = from;
-  lines.splice(from, close - from + 1, ...block);
-  return lines;
-}
-
-const CHECKBOX = /^(\s*[-*] )\[[ xX]\] /;
-
-/** A human-ticked DECISION stays ticked while its text is unchanged. */
-function isSameTickedDecision(existing: string, next: string): boolean {
-  return (
-    /^\s*[-*] \[[xX]\] /.test(existing) &&
-    existing.replace(CHECKBOX, "").trim() === next.replace(CHECKBOX, "").trim()
-  );
+/** The not-run item: a review the diff required but that could not run. */
+export function notRunDecisionItem(plain: string): string {
+  return `- [ ] DECISION: the UI review did not run (${cell(plain)}) — merge without a design review of the changed screens, or redirect to fix the cause ${UI_REVIEW_NOT_RUN_MARKER}`;
 }
 
 /**
- * Replaces the marked block, or inserts it before `## Test Steps`; adds,
- * replaces or (with `decision === null`) removes the one marked DECISION line
- * at the end of the Test Steps section. No other Test Step line is touched.
+ * The human-only items a review leaves, as independent slots: unresolved
+ * defects, and a required review that could not run. Both can be present.
  */
-export function upsertUiReview(
-  body: string,
-  section: string,
-  decision: string | null,
-): string {
-  let lines = body.split("\n");
-  const block = section.split("\n");
-  const replaced = replaceBlock(lines, block);
-  if (replaced) lines = replaced;
-  else {
-    const bounds = testStepsSectionBounds(lines);
-    if (bounds) {
-      const lead =
-        bounds.start > 0 && lines[bounds.start - 1].trim() !== "" ? [""] : [];
-      lines.splice(bounds.start, 0, ...lead, ...block, "");
-    } else lines.push("", ...block, "");
-  }
-
-  const fenced = fencedLineMask(lines);
-  const at = findLine(lines, fenced, (l) =>
-    l.includes(UI_REVIEW_DECISION_MARKER),
-  );
-  const marked =
-    decision === null
-      ? null
-      : `${decision.trimEnd()} ${UI_REVIEW_DECISION_MARKER}`;
-  if (at >= 0) {
-    if (marked === null) lines.splice(at, 1);
-    else if (!isSameTickedDecision(lines[at], marked)) lines[at] = marked;
-  } else if (marked !== null) {
-    const bounds = testStepsSectionBounds(lines);
-    if (bounds) {
-      let last = bounds.end - 1;
-      while (last > bounds.start && lines[last].trim() === "") last--;
-      lines.splice(last + 1, 0, marked);
-    }
-  }
-  return lines.join("\n");
+export function uiReviewDecisionItems(log: LoopLog): {
+  defects: string | null;
+  notRun: string | null;
+} {
+  return {
+    defects: residualDecisionItem(log.skip ? [] : log.residual, log.persistent),
+    notRun: notRun(log) ? notRunDecisionItem(plainReason(log.skip!)) : null,
+  };
 }

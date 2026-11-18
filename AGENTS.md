@@ -97,7 +97,7 @@ Lose an anchor below and the supervisor cannot tell what it has done.
 
 - **Branches:** short, descriptive. `flow-new-worktree` creates per-pipeline branches from the slug; humans use `<type>/<topic>`.
 - **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`). Imperative summary ≤ 50 chars; body explains *why*.
-- **PRs:** TLDR / User-facing changes / System changes / Why / Key decisions / Deviations from plan / Test Steps — zero unchecked `- [ ]` Test Steps ⇒ auto-merge, one or more ⇒ gated. Fix PRs add `**Failing:**`/`**Root cause:**`/`**Fix mechanism:**`; `## User-facing changes` and `## System changes` are mandatory (`none` when empty).
+- **PRs:** TLDR / User-facing changes / System changes / Why / Key decisions / Deviations from plan / Test Steps — no unchecked `- [ ]` Test Steps (verified `After merge: ` excepted) ⇒ auto-merge, else gated. Fix PRs add `**Failing:**`/`**Root cause:**`/`**Fix mechanism:**`; `## User-facing changes` and `## System changes` are mandatory (`none` when empty).
 - **Never amend pushed commits or force-push** without explicit request.
 - Full mechanics at [references/git-workflow.md](references/git-workflow.md).
 
@@ -111,7 +111,7 @@ npm run verify             # typecheck:scripts + test + lint
 bun bin/flow install        # global install
 ```
 
-No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
+No build step — flow ships `bin/flow` via Bun.
 
 ## Don'ts
 

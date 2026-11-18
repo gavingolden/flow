@@ -390,7 +390,7 @@ The exemption covers exactly one operation: the squash merge of `<PR>`
 inside step 10 — a bare `gh pr merge --squash <PR>` run by
 `flow-merge-guard merge <PR>`, which re-checks the gate and CI first —
 only when the auto-merge gate fires (`flow-gate-decide` returns
-`auto-merge` — the Test Steps section has zero unchecked items)
+`auto-merge` — the Test Steps section has zero unchecked items; verified `After merge: ` items excepted — see auto-merge-rubric.md)
 and only on a PR opened by `/flow-pipeline` itself. It does **not**
 extend to a `gated` verdict: a `gated` verdict is terminal, and a `gated`
 PR is merged by `/flow-pipeline` only through the fresh-confirmation

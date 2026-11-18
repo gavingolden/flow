@@ -1337,7 +1337,8 @@ Always emit the heading. Decide the body based on the PRD:
   is written `- [ ] Browser: on <route>, <action> — expect <result>` (one action chain, one
   expected result per box), any clause a second observer would record identically leaves a taste
   item and becomes its own runnable item, and a step that can only be done after merge or deploy
-  goes to `flow-followups` instead. See
+  goes to `flow-followups` instead. A step that needs this branch installed is the exception: keep
+  it in Test Steps, prefixed `After merge: `. See
   `skills/pipeline/flow-pr-review/references/manual-test-rubric.md` ("Decision checks",
   "Behaviour checks: the Browser: shape", "Split rule: a taste item holds only taste", "Shallow
   smells") — do not inline the rule bodies.

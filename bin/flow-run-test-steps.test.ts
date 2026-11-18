@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseArgs, run } from "./flow-run-test-steps";
 import { defaultExec, runTestSteps, type ExecFn } from "./lib/run-test-steps";
 
-type Call = { argv: string[]; timeoutMs?: number; bodyAtCall?: string };
+type Call = {
+  argv: string[];
+  timeoutMs?: number;
+  env?: Record<string, string | undefined>;
+  bodyAtCall?: string;
+};
 
 let worktree: string;
 let bodyFile: string;
@@ -52,7 +57,7 @@ function harness(
   const calls: Call[] = [];
   let t = 0;
   const exec: ExecFn = (argv, o) => {
-    const call: Call = { argv, timeoutMs: o?.timeoutMs };
+    const call: Call = { argv, timeoutMs: o?.timeoutMs, env: o?.env };
     calls.push(call);
     if (argv[0] === "gh" && argv[2] === "view") {
       return {
@@ -96,6 +101,58 @@ function harness(
 
 const edits = (calls: Call[]) =>
   calls.filter((c) => c.argv[0] === "gh" && c.argv[2] === "edit");
+
+describe("runTestSteps — branch PATH and After merge", () => {
+  const run = (calls: ReturnType<typeof harness>, wt: string) =>
+    runTestSteps({
+      pr: 7,
+      worktree: wt,
+      budgetSec: 540,
+      exec: calls.exec,
+      now: calls.now,
+    });
+
+  it("gives only the bash -c call the branch shim dir in a flow checkout", async () => {
+    fs.mkdirSync(path.join(worktree, "skills"));
+    fs.mkdirSync(path.join(worktree, "bin", "lib"), { recursive: true });
+    fs.writeFileSync(path.join(worktree, "bin", "lib", "modules.ts"), "");
+    fs.writeFileSync(path.join(worktree, "bin", "flow"), "");
+    const h = harness(bodyOf(["- [ ] Run `flow-x --go` and expect success"]));
+    await run(h, worktree);
+    const shimDir = path.join(worktree, ".flow-tmp", "branch-bin");
+    const bash = h.calls.find((c) => c.argv[0] === "bash")!;
+    expect(bash.env?.PATH?.startsWith(`${shimDir}:`)).toBe(true);
+    expect(
+      h.calls.filter((c) => c.argv[0] !== "bash").every((c) => !c.env),
+    ).toBe(true);
+  });
+
+  it("passes no env in a consumer worktree", async () => {
+    const h = harness(bodyOf(["- [ ] Run `cmd` and expect success"]));
+    await run(h, worktree);
+    expect(h.calls.find((c) => c.argv[0] === "bash")!.env).toBeUndefined();
+  });
+
+  it("never runs an After merge item and reports it as not runnable", async () => {
+    const h = harness(
+      bodyOf([
+        "- [ ] After merge: run `flow manage` and read the window",
+        "- [ ] Run `cmd` and expect success",
+      ]),
+    );
+    const env = await run(h, worktree);
+    expect(
+      h.calls.filter((c) => c.argv[0] === "bash").map((c) => c.argv[2]),
+    ).toEqual(["cmd"]);
+    expect(env.notRunnable).toEqual([
+      {
+        index: 1,
+        kind: "after-merge",
+        text: "After merge: run `flow manage` and read the window",
+      },
+    ]);
+  });
+});
 
 describe("runTestSteps", () => {
   it("ticks passes with evidence, annotates a failure, leaves SUBJECTIVE/prose, pushes once after the repair", async () => {

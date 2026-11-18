@@ -14,6 +14,11 @@
  *   2 — bad CLI args or unreadable body file
  */
 import { readFileSync } from "node:fs";
+import {
+  collectInstallOnlyNames,
+  isFlowSource,
+  type InstallOnlyName,
+} from "./lib/install-only-names";
 import { lintTestSteps, parseTestSteps } from "./lib/test-steps-parse";
 
 export type LintArgs = { bodyFile: string; phase: "authoring" | "review" };
@@ -39,7 +44,12 @@ export function parseArgs(argv: string[]): LintArgs | { error: string } {
   return { bodyFile, phase };
 }
 
-export function run(argv: string[]): number {
+export type LintDeps = {
+  cwd?: string;
+  collect?: (cwd: string) => InstallOnlyName[] | null;
+};
+
+export function run(argv: string[], deps: LintDeps = {}): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`flow-test-steps-lint: ${parsed.error}\n${USAGE}`);
@@ -55,7 +65,11 @@ export function run(argv: string[]): number {
     return 2;
   }
   const { headingPresent, steps } = parseTestSteps(body);
-  const findings = lintTestSteps(steps, parsed.phase);
+  const cwd = deps.cwd ?? process.cwd();
+  const names = isFlowSource(cwd)
+    ? ((deps.collect ?? collectInstallOnlyNames)(cwd) ?? undefined)
+    : undefined;
+  const findings = lintTestSteps(steps, parsed.phase, names);
   process.stdout.write(
     JSON.stringify({ headingPresent, phase: parsed.phase, steps, findings }) +
       "\n",

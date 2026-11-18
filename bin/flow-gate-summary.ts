@@ -48,6 +48,8 @@
  *                     [--why <one-line reason>]
  *                     [--reason <needs-human-tag>]
  *                     [--validation-items-file <path>]
+ *                     [--after-merge-items-file <path>]
+ *                     [--needs-install-file <path>]   (gate verdict's `.needsInstall` JSON list)
  *                     [--deferred-file <path>]
  *                     [--signoff-file <path>]   (gate verdict's `.uiSignoff` JSON; gated only)
  *                     [--worktree <path>]
@@ -107,6 +109,12 @@ import {
   TLDR_MAX_WORDS,
   buildManualAction,
   buildNeedsAttention,
+  installStaleFrom,
+  needsInstallIndex,
+  stripBullet,
+  needsInstallLabel,
+  parseNeedsInstall,
+  type NeedsInstallEntry,
   buildUntracked,
   clampTldr,
 } from "./lib/gate-summary-rows";
@@ -159,6 +167,10 @@ export type GateSummaryInputs = {
   why?: string;
   reason?: string;
   validationItems?: string[];
+  /** Verified `After merge:` items the gate excluded (gate verdict `.afterMerge`). */
+  afterMergeItems?: string[];
+  /** Unmarked items needing this branch installed (gate verdict `.needsInstall`). */
+  needsInstallItems?: NeedsInstallEntry[];
   /** The gate verdict's `uiSignoff`; renders evidence lines under GATED items. */
   signoff?: UiSignoff;
   deferredBlock?: string;
@@ -592,6 +604,8 @@ type Args = {
   reason?: string;
   tldr?: string;
   validationItemsFile?: string;
+  afterMergeItemsFile?: string;
+  needsInstallFile?: string;
   signoffFile?: string;
   deferredFile?: string;
   worktree?: string;
@@ -653,6 +667,12 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         break;
       case "--validation-items-file":
         out.validationItemsFile = value;
+        break;
+      case "--after-merge-items-file":
+        out.afterMergeItemsFile = value;
+        break;
+      case "--needs-install-file":
+        out.needsInstallFile = value;
         break;
       case "--deferred-file":
         out.deferredFile = value;
@@ -827,9 +847,21 @@ function renderMerged(inputs: GateSummaryInputs): string {
   if (pm) {
     lines.push(...buildUntracked(inputs.untrackedBlock));
     if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
+    lines.push(
+      ...buildManualAction(inputs.afterMergeItems ?? [], undefined, {
+        installStale: installStaleFrom(inputs.deferredBlock),
+      }),
+    );
   }
   pushCleanup(lines, inputs.cleanup, pm);
-  if (!pm) appendFollowups(lines, inputs.deferredBlock);
+  if (!pm) {
+    lines.push(
+      ...buildManualAction(inputs.afterMergeItems ?? [], undefined, {
+        installStale: installStaleFrom(inputs.deferredBlock),
+      }),
+    );
+    appendFollowups(lines, inputs.deferredBlock);
+  }
   lines.push("NEXT ACTION: none (post-merge cleanup already ran)");
   pushTldr(lines, inputs.tldr);
   lines.push("MERGED");
@@ -867,7 +899,12 @@ function renderGated(inputs: GateSummaryInputs): string {
     const shown = items.map((i) => i.trim()).filter((i) => i.length > 0);
     lines.push(
       ...withEvidenceLines(
-        buildNeedsAttention(items, inputs.prUrl, mode),
+        buildNeedsAttention(
+          items,
+          inputs.prUrl,
+          mode,
+          inputs.needsInstallItems,
+        ),
         1,
         shown,
         inputs.signoff,
@@ -875,7 +912,12 @@ function renderGated(inputs: GateSummaryInputs): string {
       ),
     );
     pushUiReviewLine(lines, inputs.signoff);
-    lines.push(...buildManualAction(items, inputs.deferredBlock));
+    const afterMerge = inputs.afterMergeItems ?? [];
+    lines.push(
+      ...buildManualAction(afterMerge, inputs.deferredBlock, {
+        githubMergeNote: true,
+      }),
+    );
     lines.push(...buildUntracked(inputs.untrackedBlock));
     if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
     pushCleanup(lines, inputs.cleanup, pm);
@@ -888,6 +930,7 @@ function renderGated(inputs: GateSummaryInputs): string {
     lines.push(
       `NEXT ACTION: tick each step once validated, then run: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}`,
     );
+    const devNeedsInstall = needsInstallIndex(inputs.needsInstallItems ?? []);
     for (const item of items) {
       const trimmed = item.trim();
       if (!trimmed) continue;
@@ -895,11 +938,19 @@ function renderGated(inputs: GateSummaryInputs): string {
       // containing "- foo") or as bare text; normalise to the same
       // two-space indent + leading `- ` shape.
       const stripped = trimmed.replace(/^[-*]\s+/, "");
-      lines.push(`  - ${stripped}`);
+      const installEntry = devNeedsInstall.get(stripBullet(trimmed));
+      lines.push(
+        `  - ${stripped}${installEntry ? needsInstallLabel(installEntry) : ""}`,
+      );
       const ev = evidenceForItem(inputs.signoff, stripped, mode);
       if (ev !== null) lines.push(`    ${ev}`);
     }
     pushUiReviewLine(lines, inputs.signoff);
+    lines.push(
+      ...buildManualAction(inputs.afterMergeItems ?? [], undefined, {
+        githubMergeNote: true,
+      }),
+    );
     pushCleanup(lines, inputs.cleanup, pm);
     appendFollowups(lines, inputs.deferredBlock);
   }
@@ -1213,6 +1264,8 @@ export function run(
       "usage: flow-gate-summary --status <merged|gated|needs-human|awaiting-approval|cancelled>\n" +
         "                         [--pr-url <url>] [--why <text>] [--reason <tag>] [--tldr <text>]\n" +
         "                         [--validation-items-file <path>] [--deferred-file <path>]\n" +
+        "                         [--after-merge-items-file <path>]\n" +
+        "                         [--needs-install-file <path>]  (gate verdict's needsInstall JSON list)\n" +
         "                         [--signoff-file <path>]\n" +
         "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n" +
         "                         [--cleanup] [--lens <pm|dev>] [--untracked-file <path>]\n" +
@@ -1229,6 +1282,13 @@ export function run(
     parsed.slug ?? resolveSlugFromEnv(opts?.env ?? process.env);
   const validationRaw = readFileOrEmpty(parsed.validationItemsFile);
   const validationItems = parseValidationItems(validationRaw);
+  const afterMergeItems = parseValidationItems(
+    readFileOrEmpty(parsed.afterMergeItemsFile),
+  );
+  const needsInstallItems = parseNeedsInstall(
+    readFileOrEmpty(parsed.needsInstallFile),
+    (m) => process.stderr.write(m + "\n"),
+  );
   const deferredBlock = readFileOrEmpty(parsed.deferredFile);
   const signoff = readSignoff(readFileOrEmpty(parsed.signoffFile)) ?? undefined;
   const cleanup = parsed.cleanup
@@ -1254,6 +1314,8 @@ export function run(
     reason: parsed.reason,
     tldr,
     validationItems,
+    afterMergeItems,
+    needsInstallItems,
     signoff,
     deferredBlock,
     worktree: parsed.worktree,

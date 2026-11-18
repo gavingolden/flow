@@ -38,8 +38,10 @@ import {
   SEED_CORRUPTED_STDERR,
   setWindowEpic,
   setPaneKind,
+  capturePaneBySlug,
   type VerifiedLaunchResult,
 } from "./tmux";
+import { detectTrustDialog, trustDialogSteps } from "./trust-dialog";
 import { livenessOf, pidStartEpoch } from "./liveness";
 import {
   readState,
@@ -1233,8 +1235,8 @@ function runFresh(
   // window on failure, so an attempt that advanced the phase (e.g. to
   // `triaging`) then died would otherwise leave state non-`starting` — making
   // the next attempt's `consumed()` short-circuit true over a brand-new idle
-  // window (the double-submit guard skips the seed send and `pollUntilConsumed`
-  // latches on its first probe), a false-success orphan. Rewriting `starting`
+  // window (`pollUntilConsumed` latches on its first probe), a false-success
+  // orphan. Rewriting `starting`
   // per attempt scopes consumption to THAT attempt. A retry only fires after a
   // killed/dead window, so no live supervisor races this rewrite.
   const launch = () => {
@@ -1421,8 +1423,15 @@ function runFresh(
         "flow feature create: launched; supervisor still starting — attach to verify",
       ),
     );
-    // Surface any delivery stderr (e.g. a failed/exhausted send) rather than
-    // silently dropping it — the failed branch above already does this.
+    for (const line of stillStartingHint(
+      slug,
+      capturePaneBySlug(slug),
+      pipelineAddDirs(worktree, overlay?.addDir),
+      overlay?.addDir,
+    )) {
+      console.error(dim(line));
+    }
+    // Defensive: surface any stderr rather than silently dropping it.
     if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
     console.log(
@@ -1778,10 +1787,15 @@ function runResume(
         "flow feature resume: launched; supervisor still starting — attach to verify",
       ),
     );
-    // Surface any delivery stderr (e.g. a failed/exhausted send) rather than
-    // silently dropping it — the failed branch above already does this. The
-    // edit-set that introduced this bundled fix assumed the resume path
-    // already did this; on inspection it did not, so it's fixed here too.
+    for (const line of stillStartingHint(
+      slug,
+      capturePaneBySlug(slug),
+      pipelineAddDirs(worktree, overlay?.addDir),
+      overlay?.addDir,
+    )) {
+      console.error(dim(line));
+    }
+    // Defensive: surface any stderr rather than silently dropping it.
     if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
     console.log(
@@ -1871,9 +1885,10 @@ function launchArgv(
   // backend's half is a SEPARATE implementation via a real env object in
   // launcher.ts) — omitted entirely when there is nothing left to append.
   //
-  // No positional seed: the seed is delivered ONLY via send-keys (the verified
-  // launcher owns it), since claude does not auto-run a positional prompt — the
-  // old positional was dead weight that plausibly slowed the TUI cold-start.
+  // The seed is NOT part of this argv: the shared verified launcher appends it
+  // as the LAST element, so it stays after the single-value `--settings` below.
+  // Claude Code 2.1.325 auto-submits a launch-line prompt under tmux and holds
+  // it behind the folder-trust question, which is why a typed seed was dropped.
   // `--settings <flow-scoped file>` registers the UserPromptSubmit seed-ingested
   // hook; it is ADDITIVE (the user's global settings still apply).
   //
@@ -1918,6 +1933,14 @@ function launchArgv(
  * feature targets), not scope creep beyond the plan's `launch.ts`-only
  * naming for Task 5's bare-`flow` launcher.
  */
+/** Every folder a pipeline's claude session is launched with `--add-dir`; the trust-question hint reads the same list. */
+export function pipelineAddDirs(
+  worktree: string,
+  overlayDir?: string,
+): string[] {
+  return [worktree, flowClaudeHome(), ...(overlayDir ? [overlayDir] : [])];
+}
+
 function claudeArgv(
   name: string,
   worktree: string,
@@ -1931,11 +1954,7 @@ function claudeArgv(
   // never `~/.flow` or the whole overlays dir: sub-skills Read siblings from it.
   const base = [
     "claude",
-    "--add-dir",
-    worktree,
-    "--add-dir",
-    flowClaudeHome(),
-    ...(overlayDir ? ["--add-dir", overlayDir] : []),
+    ...pipelineAddDirs(worktree, overlayDir).flatMap((d) => ["--add-dir", d]),
     "--name",
     name,
     ...pluginDirArgs(roots),
@@ -2183,8 +2202,8 @@ export function ensureLaunchSettings(
   fs.renameSync(tmp, settingsPath);
 }
 
-// The seed text is defined ONCE in these helpers and delivered ONLY via
-// send-keys by the verified launcher (no positional argv copy), so there is no
+// The seed text is defined ONCE in these helpers and rides the launch line
+// (the verified launcher appends it as the last argv element), so there is no
 // second definition to drift from. The seed is a SINGLE control-char-free
 // line: the verbatim request text no longer rides the seed itself (a stray
 // TAB or newline inside the description used to reach the pane raw and
@@ -2302,6 +2321,26 @@ function buildPlainCommand(
     (pluginRootsScan ?? scanPluginRoots)(),
     overlayDir,
   );
+}
+
+/** Names the likeliest reason a launched window has not confirmed: a trust question holds the start command until answered. Numbered steps either way; with no question on screen yet they cover both questions. */
+export function stillStartingHint(
+  slug: string,
+  pane?: string,
+  addedFolders: readonly string[] = [],
+  overlayDir?: string,
+): string[] {
+  const dialog = detectTrustDialog(pane ?? "", addedFolders);
+  const claudeHome = flowClaudeHome();
+  const steps = trustDialogSteps(slug, dialog, {
+    addedFolders,
+    perPipelineFolders: addedFolders.filter((f) => f !== claudeHome),
+    flowOwnedParents: overlayDir ? [path.dirname(overlayDir)] : [],
+  });
+  return [
+    "  if Claude Code is asking a trust question, do this:",
+    ...steps.map((step, i) => `  ${i + 1}. ${step}`),
+  ];
 }
 
 /**

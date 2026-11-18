@@ -42,7 +42,7 @@ markdown instead of a helper block.
      existing behavior, name the delta on the same line with bold
      `**Before:** <old>; **After:** <new>` labels, one short clause each, no
      arrow), plus every crucial-and-uncertain item (see `## Definitions`).
-   - `**Manual action:**` — split `before merge:` / `whenever:` (see
+   - `**Manual action:**` — split `after merge:` / `whenever:` (see
      `## Definitions`).
    - `**Untracked:**` — discovered-but-not-tracked work items (see
      `## Definitions`), each with its `#N` and the `file #N` /
@@ -130,10 +130,11 @@ behavior"); a fix whose behavior changed is a deviation and belongs
 under `**Needs attention:**` / `## Deviations from plan` instead, per
 its own defined slot.
 
-**Manual action split**: `before merge:` is the mechanical
-`SUBJECTIVE:`-prefixed subset of a gate's validation items; `whenever:`
-is everything else queued for later (local follow-ups, post-merge
-chores). An item never appears in both buckets.
+**Manual action split**: `after merge:` is the checks that need the
+merged code installed, handed back after the post-merge install (the
+gate's verified `After merge:` Test Steps); `whenever:` is everything
+else queued for later (local follow-ups, post-merge chores). An item
+never appears in both buckets.
 
 **"Give me the technical version"**: on request, the current reply
 expands in place to the full mechanism-and-identifier detail (the raw
@@ -493,7 +494,7 @@ status` shows the active plan); "just gatekeeper" already means the
 > **Unsolved:** `.flow/epics/…/status.json` on `main` already says f1
 > merged (PR #660 is still open) — harmless until merge, don't trust
 > it for `flow epic run` yet.
-> **Manual action:** before merge — run the baseline-recording script
+> **Manual action:** run the baseline-recording script
 > from a plain shell, then commit + push on this branch; then tick the
 > validate/self-compare step.
 > **Next action:** run the baseline, tick the boxes, say `merge`.

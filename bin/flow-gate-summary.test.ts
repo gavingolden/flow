@@ -24,6 +24,7 @@ import {
   buildNeedsAttention,
   buildUntracked,
   clampTldr,
+  installStaleFrom,
 } from "./lib/gate-summary-rows";
 import type { UiSignoff } from "./lib/ui-signoff-evidence";
 
@@ -983,17 +984,41 @@ describe("gate-summary-rows", () => {
   });
 
   describe("buildManualAction", () => {
-    it("is empty when there is nothing before-merge or whenever", () => {
+    it("is empty when there is nothing after-merge or whenever", () => {
       expect(buildManualAction([], undefined)).toEqual([]);
     });
 
-    it("never re-lists validation items (they already render under NEEDS ATTENTION); a single whenever item collapses onto one line", () => {
+    it("a single whenever item collapses onto one line", () => {
       expect(
         buildManualAction(
-          ["SUBJECTIVE: check A", "check B"],
+          [],
           "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN flow install --upgrade",
         ),
       ).toEqual(["MANUAL ACTION:", "  whenever: RAN flow install --upgrade"]);
+    });
+
+    it("lists after-merge items with the prefix stripped", () => {
+      expect(
+        buildManualAction(
+          ["After merge: run `flow manage` and read it"],
+          undefined,
+        ),
+      ).toEqual([
+        "MANUAL ACTION:",
+        "  after merge: run `flow manage` and read it",
+      ]);
+    });
+
+    it("leads with the install-first line only when stale", () => {
+      const item = ["After merge: run `flow manage`"];
+      expect(
+        buildManualAction(item, undefined, { installStale: true })[1],
+      ).toBe(
+        "  run flow install --upgrade first — the post-merge install did not refresh",
+      );
+      expect(
+        buildManualAction(item, undefined, { installStale: false }),
+      ).toEqual(["MANUAL ACTION:", "  after merge: run `flow manage`"]);
     });
 
     it("expands to a header + bullets when whenever holds 2+ items", () => {
@@ -1478,6 +1503,21 @@ describe("renderCleanup", () => {
 });
 
 describe("parseArgs", () => {
+  it("accepts the after-merge and needs-install item files", () => {
+    const args = parseArgs([
+      "--status",
+      "gated",
+      "--after-merge-items-file",
+      "/tmp/am",
+      "--needs-install-file",
+      "/tmp/ni",
+    ]);
+    expect(args).toMatchObject({
+      afterMergeItemsFile: "/tmp/am",
+      needsInstallFile: "/tmp/ni",
+    });
+  });
+
   it("accepts every documented flag", () => {
     const args = parseArgs([
       "--status",
@@ -1622,6 +1662,54 @@ describe("run (end-to-end CLI)", () => {
     expect(captured).toContain(
       "flow-merge-guard merge 1 --slug gate-write-test-slug",
     );
+  });
+
+  it("reads --after-merge-items-file and --needs-install-file into their own rows", () => {
+    const am = path.join(tmpRoot, "am.txt");
+    const ni = path.join(tmpRoot, "ni.txt");
+    const vi_ = path.join(tmpRoot, "vi.txt");
+    fs.writeFileSync(am, "- After merge: run `flow manage` window\n");
+    fs.writeFileSync(
+      ni,
+      JSON.stringify([
+        { item: "Check `flow-foo` works", name: "flow-foo", kind: "helper" },
+      ]),
+    );
+    fs.writeFileSync(vi_, "- Check `flow-foo` works\n");
+    const original = process.stdout.write.bind(process.stdout);
+    let captured = "";
+    process.stdout.write = ((chunk: unknown) => {
+      captured += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const rc = run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--lens",
+          "pm",
+          "--validation-items-file",
+          vi_,
+          "--after-merge-items-file",
+          am,
+          "--needs-install-file",
+          ni,
+          "--slug",
+          "gate-files-test-slug",
+        ],
+        { stateDir: tmpRoot },
+      );
+      expect(rc).toBe(0);
+    } finally {
+      process.stdout.write = original;
+    }
+    expect(captured).toContain(
+      "MANUAL ACTION:\n  after merge: run `flow manage`",
+    );
+    expect(captured).toContain("run `bun bin/flow-foo.ts` in the worktree");
   });
 
   it("silently suppresses FOLLOW-UPS when deferred file is missing on disk", () => {
@@ -3028,5 +3116,154 @@ describe("run() — history record", () => {
         (e) => e.type === "gate" && e.status === "needs-human",
       ),
     ).toBe(true);
+  });
+});
+
+describe("after-merge rows", () => {
+  const AM = "After merge: run `flow manage` and read the window";
+  const gated = (extra: Record<string, unknown> = {}) =>
+    render({
+      status: "gated",
+      lens: "pm",
+      prUrl: "https://github.com/org/repo/pull/9",
+      validationItems: ["Run `npm run x`"],
+      ...extra,
+    });
+
+  it("installStaleFrom detects a FAIL install line or a NOT refreshed line only", () => {
+    expect(installStaleFrom(undefined)).toBe(false);
+    expect(installStaleFrom("  RAN     flow install --upgrade  (exit 0)")).toBe(
+      false,
+    );
+    expect(installStaleFrom("  FAIL    flow install --upgrade  (exit 1)")).toBe(
+      true,
+    );
+    expect(
+      installStaleFrom(
+        "  RAN     flow install --upgrade  (exit 0)\n            flow: content NOT refreshed (dirty)",
+      ),
+    ).toBe(true);
+  });
+
+  it("gated pm lists the after merge bucket with the GitHub-merge caveat, NEXT ACTION stays short", () => {
+    const out = gated({ afterMergeItems: [AM] });
+    expect(out).toContain("MANUAL ACTION:\n  after merge: run `flow manage`");
+    expect(out).toContain(
+      "  if you merge on GitHub instead: run flow install --upgrade, then these",
+    );
+    expect(out).not.toContain("after-merge checks come back");
+  });
+
+  it("gated pm names the runnable command for a needs-install flow verb", () => {
+    const out = gated({
+      needsInstallItems: [
+        { item: "Check `flow manage` opens", name: "manage", kind: "verb" },
+      ],
+      validationItems: ["Check `flow manage` opens"],
+    });
+    expect(out).toContain("run `bun bin/flow manage` in the worktree");
+  });
+
+  it("gated pm labels needs-install items", () => {
+    const out = gated({ needsInstallItems: [{ item: "Run `npm run x`" }] });
+    expect(out).toContain(
+      "  - Run `npm run x` — needs this branch installed: mark it `After merge:` or run it from the branch → https://github.com/org/repo/pull/9",
+    );
+  });
+
+  it("gated pm and dev name the new skill, not the existing verb the step quotes", () => {
+    const item = "Run `flow status` then invoke /flow-new-thing";
+    for (const lens of ["pm", "dev"]) {
+      const out = gated({
+        lens,
+        validationItems: [item],
+        needsInstallItems: [{ item, name: "flow-new-thing", kind: "skill" }],
+      });
+      expect(out).toContain(
+        " — needs this branch installed: run `flow feature create --skills-from <worktree>` to load `/flow-new-thing` from this branch, or mark the step `After merge:`",
+      );
+      expect(out).not.toContain("bun bin/flow status");
+    }
+  });
+
+  it("a malformed --needs-install-file still renders every item, unlabelled, and names the skip on stderr", () => {
+    const ni = path.join(tmpRoot, "ni-bad.txt");
+    const vi_ = path.join(tmpRoot, "vi-bad.txt");
+    fs.writeFileSync(ni, "- Check `flow-foo` works\n");
+    fs.writeFileSync(vi_, "- Check `flow-foo` works\n");
+    const origOut = process.stdout.write.bind(process.stdout);
+    const origErr = process.stderr.write.bind(process.stderr);
+    let out = "";
+    let err = "";
+    process.stdout.write = ((c: unknown) => {
+      out += String(c);
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((c: unknown) => {
+      err += String(c);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const rc = run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--lens",
+          "pm",
+          "--validation-items-file",
+          vi_,
+          "--needs-install-file",
+          ni,
+          "--slug",
+          "gate-badni-test-slug",
+        ],
+        { stateDir: tmpRoot },
+      );
+      expect(rc).toBe(0);
+    } finally {
+      process.stdout.write = origOut;
+      process.stderr.write = origErr;
+    }
+    expect(out).toContain("Check `flow-foo` works");
+    expect(out).not.toContain("needs this branch installed");
+    expect(err).toContain("--needs-install-file is not a JSON list");
+  });
+
+  it("merged pm adds a MANUAL ACTION row, with the stale line only when the install did not refresh", () => {
+    const merged = (deferredBlock?: string) =>
+      render({
+        status: "merged",
+        lens: "pm",
+        prUrl: "https://github.com/org/repo/pull/9",
+        afterMergeItems: [AM],
+        deferredBlock,
+      });
+    expect(merged()).toContain(
+      "MANUAL ACTION:\n  after merge: run `flow manage`",
+    );
+    expect(merged()).not.toContain("did not refresh");
+    expect(
+      merged(
+        "LOCAL FOLLOW-UPS: 1 failed\n\n  FAIL    flow install --upgrade  (exit 1)",
+      ),
+    ).toContain(
+      "  run flow install --upgrade first — the post-merge install did not refresh",
+    );
+  });
+
+  it("empty after-merge inputs leave the renders unchanged", () => {
+    for (const status of ["gated", "merged"] as const) {
+      const base = {
+        status,
+        lens: "pm" as const,
+        prUrl: "https://github.com/org/repo/pull/9",
+        validationItems: ["one"],
+      };
+      expect(
+        render({ ...base, afterMergeItems: [], needsInstallItems: [] }),
+      ).toBe(render(base));
+    }
   });
 });
