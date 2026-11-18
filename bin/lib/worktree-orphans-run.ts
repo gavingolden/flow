@@ -321,7 +321,7 @@ export function renderOrphanSweepLine(
 }
 
 export const ORPHAN_GUIDANCE =
-  "A background job you poll should use the Bash tool's run_in_background (a server: flow-spawn --detach) so it is not left orphaned.";
+  "Wait for a background job through flow-wait --max-sec <s> (a server: flow-spawn --detach) so it is not left orphaned.";
 
 /**
  * The one-line notice both in-run sweeps hand the agent, or null when nothing
