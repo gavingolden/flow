@@ -116,6 +116,30 @@ describe("unboundedPollLoop — allowed", () => {
       "cat > x.sh <<'EOF'\nwhile true; do sleep 20; done\nEOF",
     ],
     ["a finite for-in list with sleep", "for f in a b c; do sleep 1; done"],
+    [
+      "a timeout with a kill-after option",
+      "timeout -k 5 600 bash -c 'until test -f x; do sleep 5; done'",
+    ],
+    [
+      "a timeout with a signal option",
+      "timeout -s KILL 600 bash -c 'until test -f x; do sleep 5; done'",
+    ],
+    [
+      "a quoted bash -c in a commit message",
+      `git commit -m "test: deny bash -c 'until test -f x; do sleep 20; done'"`,
+    ],
+    [
+      "a bash -c in a cat heredoc",
+      "cat > notes.md <<'EOF'\nrun bash -c 'until test -f x; do sleep 20; done'\nEOF",
+    ],
+    [
+      "a commented-out poll after an apostrophe comment",
+      "# don't poll\ntrue # until test -f x; do sleep 20; done",
+    ],
+    [
+      "a heredoc in a commit-message substitution with inner quotes",
+      `git commit -m "$(cat <<'EOF'\nfix: allow "x"\n\nuntil x; do sleep 1; done\nEOF\n)"`,
+    ],
   ])("should allow %s", (_n, cmd) => {
     expect(unboundedPollLoop(cmd)).toBe(false);
   });
@@ -132,6 +156,10 @@ describe("unboundedWatch", () => {
     "tail -F log.txt",
     "tail -n 20 -f log.txt",
     "timeout 999999 gh pr checks --watch",
+    "# don't wait\ngh pr checks --watch",
+    "nohup tail -f log.txt",
+    "cd x && gh run watch",
+    "if true; then gh run watch; fi",
   ])("should refuse %s", (cmd) => {
     expect(unboundedWatch(cmd)).toBe(true);
   });
@@ -144,7 +172,28 @@ describe("unboundedWatch", () => {
     "gh pr view 412 --json state",
     "tail -n 20 log.txt",
     `echo "gh pr checks --watch"`,
+    "timeout -k 5 600 gh pr checks --watch",
+    "echo gh pr checks --watch",
+    "rg 'x' && echo gh run watch",
+    "cat > f.md <<'EOF'\ngh pr checks --watch\nEOF",
+    `git commit -m "$(cat <<'EOF'\nDeny "gh pr checks --watch"\nEOF\n)"`,
   ])("should allow %s", (cmd) => {
     expect(unboundedWatch(cmd)).toBe(false);
+  });
+});
+
+describe("atStatementStart cost", () => {
+  it("should scan a large heredoc of loop-like lines quickly", () => {
+    const lines: string[] = [];
+    for (let i = 0; lines.join("\n").length < 30 * 1024; i++) {
+      lines.push(
+        i % 3 === 0
+          ? "for (const x of xs) { while (y) { do_thing(x); } }"
+          : "  some prose to keep going for hours until it is done or not",
+      );
+    }
+    const t = performance.now();
+    unboundedPollLoop(`cat > f.ts <<'EOF'\n${lines.join("\n")}\nEOF`);
+    expect(performance.now() - t).toBeLessThan(2000);
   });
 });

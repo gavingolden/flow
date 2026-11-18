@@ -29,7 +29,12 @@ function atStatementStart(code: string, i: number): boolean {
   while (j >= 0 && (code[j] === " " || code[j] === "\t")) j--;
   if (j < 0) return true;
   if (/[;&|(){}\n]/.test(code[j]!)) return true;
-  return /(?:^|[\s;&|(){}])(?:then|do|else|elif|!)$/.test(code.slice(0, j + 1));
+  const kw = /(?:then|do|else|elif|!)$/.exec(
+    code.slice(Math.max(0, j - 3), j + 1),
+  );
+  if (!kw) return false;
+  const before = j - kw[0].length;
+  return before < 0 || /[\s;&|(){}]/.test(code[before]!);
 }
 
 function findLoops(code: string): Loop[] {
@@ -85,7 +90,7 @@ function wrapperBefore(code: string, idx: number): Wrapper {
     return { bounded: true, overCap: false };
   }
   const t =
-    /(?:^|\s)g?timeout\s+(?:-\S+\s+)*(\d+(?:\.\d+)?)([smhd]?)\s+(?:\S+=\S+\s+|env\s+|nohup\s+)*$/.exec(
+    /(?:^|\s)g?timeout\s+(?:(?:-[ks]|--kill-after|--signal)\s+\S+\s+|-\S+\s+)*(\d+(?:\.\d+)?)([smhd]?)\s+(?:\S+=\S+\s+|env\s+|nohup\s+)*$/.exec(
       prefix,
     );
   if (!t) return { bounded: false, overCap: false };
@@ -208,10 +213,10 @@ export function unboundedPollLoop(command: string, depth = 0): boolean {
   }
   if (depth >= 2) return false;
   for (const m of command.matchAll(WRAPPED_SCRIPT)) {
-    const wrap = wrapperBefore(
-      code,
-      m.index! + (/^[\s;&|(]/.test(m[0]) ? 1 : 0),
-    );
+    const shIdx = m.index! + (/^[\s;&|(]/.test(m[0]) ? 1 : 0);
+    if (code[shIdx] !== command[shIdx]) continue;
+    if (inert.some(([a, b]) => shIdx >= a && shIdx < b)) continue;
+    const wrap = wrapperBefore(code, shIdx);
     if (wrap.overCap) return true;
     if (wrap.bounded) continue;
     if (unboundedPollLoop(m[1]!, depth + 1)) {
@@ -227,12 +232,31 @@ const WATCHES: RegExp[] = [
   /\btail\b[^;&|\n]*\s(?:-[A-Za-z]*[fF][A-Za-z0-9]*|--follow)\b/g,
 ];
 
+const LAUNCHERS = new Set(["nohup", "env", "time", "exec", "command", "sudo"]);
+
+/** True when the watch at `idx` is the command being run, not an argument or text. */
+function atCommandPosition(code: string, idx: number): boolean {
+  if (atStatementStart(code, idx)) return true;
+  let segStart = idx;
+  while (segStart > 0 && !/[;&|\n(){}`]/.test(code[segStart - 1]!)) segStart--;
+  return code
+    .slice(segStart, idx)
+    .trim()
+    .split(/\s+/)
+    .every((t) => t === "" || LAUNCHERS.has(t) || /^[A-Za-z_]\w*=/.test(t));
+}
+
 export function unboundedWatch(command: string): boolean {
   const { code } = views(command);
+  const inert = inertHeredocs(command);
   for (const re of WATCHES) {
     for (const m of code.matchAll(re)) {
-      const wrap = wrapperBefore(code, m.index!);
-      if (wrap.overCap || !wrap.bounded) return true;
+      const idx = m.index!;
+      if (inert.some(([a, b]) => idx >= a && idx < b)) continue;
+      const wrap = wrapperBefore(code, idx);
+      if (wrap.overCap) return true;
+      if (wrap.bounded) continue;
+      if (atCommandPosition(code, idx)) return true;
     }
   }
   return false;
