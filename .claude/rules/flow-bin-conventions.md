@@ -29,6 +29,10 @@ Conventions for any script under `bin/`: `#!/usr/bin/env bun` + `chmod
 `import.meta.url`/`process.argv[1]` comparison, which breaks through a
 symlink); tests live next door, run via `npm run test`. Default new
 scripts to Bun; deviating needs user confirmation and an inline comment.
+TypeScript modules must not form runtime import loops: put shared code in a
+module neither side imports, and mark type-only imports `import type`. Enforced
+by `bin/module-load-lint.test.ts`, which also loads every entry point in a
+fresh `bun` process.
 
 Telemetry is helper-emitted only, via `bin/lib/telemetry.ts`'s `recordEvent`
 at existing chokepoints — never agent prose; a signal no helper sees is
