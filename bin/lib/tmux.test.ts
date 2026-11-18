@@ -13,6 +13,7 @@ import {
   parseAliveStatus,
   parsePaneNonEmpty,
   parsePanePid,
+  parsePaneWindows,
   parseWindowList,
   publishStateBadges,
   resolveKindFromPane,
@@ -1925,4 +1926,16 @@ describe("retired TUI-string detection surface", () => {
       expect(tmuxSource).not.toContain(symbol);
     },
   );
+});
+
+describe(parsePaneWindows, () => {
+  it("should map each pane pid to its window id and name", () => {
+    const m = parsePaneWindows("4242 @7 foo bar\n99 @8 manager\n");
+    expect(m.get(4242)).toEqual({ id: "@7", name: "foo bar" });
+    expect(m.get(99)).toEqual({ id: "@8", name: "manager" });
+  });
+
+  it("should ignore malformed rows", () => {
+    expect(parsePaneWindows("garbage\n\n").size).toBe(0);
+  });
 });
