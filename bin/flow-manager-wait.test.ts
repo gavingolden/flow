@@ -488,6 +488,22 @@ describe("flow-manager-wait manager-gone", () => {
     expect(result(h).outcome).toBe("manager-gone");
   });
 
+  it("with no claude ancestor, exits manager-gone once reparented to pid 1", async () => {
+    const h = harness();
+    h.deps.procs = () => [];
+    h.deps.ppid = 1;
+    await run([], h.deps);
+    expect(result(h).outcome).toBe("manager-gone");
+  });
+
+  it("with no claude ancestor and a live parent, keeps waiting", async () => {
+    const h = harness();
+    h.deps.procs = () => [];
+    h.deps.ppid = 777;
+    await run(["--max-sec", "20"], h.deps);
+    expect(result(h).outcome).toBe("timeout");
+  });
+
   it("keeps waiting while the record, window and claude are all live", async () => {
     const h = harness();
     h.deps.procs = procs;

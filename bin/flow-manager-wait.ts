@@ -130,6 +130,8 @@ export type WaitDeps = {
   home?: string;
   stateDir?: string;
   pid?: number;
+  /** The waiter's parent pid; 1 means it was reparented (default `process.ppid`). */
+  ppid?: number;
   kill?: (pid: number, signal: 0) => void;
   exec?: ExecFn;
   notify?: (args: string[]) => void;
@@ -252,7 +254,8 @@ export async function run(
 
   // The manager's `claude` can crash while its pane survives; `ppid === 1`
   // never fires then because the `zsh` wrapper stays the waiter's parent, so
-  // watch the recorded `claude` itself.
+  // watch the recorded `claude` itself. With no `claude` ancestor found, fall
+  // back to the reparent-to-PID-1 signal.
   const owner = (() => {
     const table = (deps.procs ?? listOrphanProcs)();
     return table
@@ -265,11 +268,11 @@ export async function run(
     const rec = readManagerRecord(home);
     if (rec === null) return true;
     if ((deps.windowGone ?? defaultWindowGone)(rec.window)) return true;
+    if (owner === null) return (deps.ppid ?? process.ppid) === 1;
     return (
-      owner !== null &&
-      (!alive(owner.pid) ||
-        (owner.startEpoch !== null &&
-          startEpochOf(owner.pid) !== owner.startEpoch))
+      !alive(owner.pid) ||
+      (owner.startEpoch !== null &&
+        startEpochOf(owner.pid) !== owner.startEpoch)
     );
   };
 
