@@ -93,7 +93,11 @@ describe("referencedPaths", () => {
   });
 
   it("should treat the literal \\012 as a statement separator", () => {
-    const refs = referencedPaths("s=foo\\012cat ~/.flow/state/$s.json", HOME, STATE);
+    const refs = referencedPaths(
+      "s=foo\\012cat ~/.flow/state/$s.json",
+      HOME,
+      STATE,
+    );
     expect(refs.map((r) => r.path)).toEqual([`${STATE}/foo.json`]);
   });
 
@@ -115,29 +119,41 @@ describe("forPipelines", () => {
 
   it("should never match foo against foo-bar state or worktree paths", () => {
     const t = [{ slug: "foo", worktree: "/x/flow-worktrees.noindex/foo" }];
-    expect(m({ kind: "state-file", path: `${STATE}/foo-bar.json` }, t)).toBe(false);
-    expect(m({ kind: "worktree", path: "/x/flow-worktrees.noindex/foo-bar" }, t)).toBe(false);
+    expect(m({ kind: "state-file", path: `${STATE}/foo-bar.json` }, t)).toBe(
+      false,
+    );
+    expect(
+      m({ kind: "worktree", path: "/x/flow-worktrees.noindex/foo-bar" }, t),
+    ).toBe(false);
   });
 
   it("should match the slug's json and request files", () => {
     const t = [{ slug: "foo" }];
     expect(m({ kind: "state-file", path: `${STATE}/foo.json` }, t)).toBe(true);
-    expect(m({ kind: "state-file", path: `${STATE}/foo.request.md` }, t)).toBe(true);
+    expect(m({ kind: "state-file", path: `${STATE}/foo.request.md` }, t)).toBe(
+      true,
+    );
   });
 
   it("should match the recorded worktree exactly", () => {
     const t = [{ slug: "foo", worktree: "/x/flow-worktrees.noindex/foo" }];
-    expect(m({ kind: "worktree", path: "/x/flow-worktrees.noindex/foo" }, t)).toBe(true);
+    expect(
+      m({ kind: "worktree", path: "/x/flow-worktrees.noindex/foo" }, t),
+    ).toBe(true);
   });
 });
 
 describe("isClaudeToolShell", () => {
   it("should accept a no-tty zsh child of claude without the wrapper", () => {
-    expect(isClaudeToolShell(row({ command: "/bin/zsh -c sleep 1" }), "claude")).toBe(true);
+    expect(
+      isClaudeToolShell(row({ command: "/bin/zsh -c sleep 1" }), "claude"),
+    ).toBe(true);
   });
 
   it("should reject a no-tty node child of claude", () => {
-    expect(isClaudeToolShell(row({ command: "node server.js" }), "claude")).toBe(false);
+    expect(
+      isClaudeToolShell(row({ command: "node server.js" }), "claude"),
+    ).toBe(false);
   });
 });
 
@@ -184,15 +200,34 @@ describe("selectStaleShells", () => {
 
   it("should never select a flow helper, wrapped or after cd", () => {
     const wt = [{ slug: "foo", worktree: "/x/flow-worktrees.noindex/foo" }];
-    expect(select(quoted("flow-remove-worktree /x/flow-worktrees.noindex/foo"), wt)).toHaveLength(0);
-    expect(select(unquoted("flow-remove-worktree /x/flow-worktrees.noindex/foo"), wt)).toHaveLength(0);
-    expect(select(quoted("cd /x/flow-worktrees.noindex/foo && flow-ci-wait"), wt)).toHaveLength(0);
+    expect(
+      select(quoted("flow-remove-worktree /x/flow-worktrees.noindex/foo"), wt),
+    ).toHaveLength(0);
+    expect(
+      select(
+        unquoted("flow-remove-worktree /x/flow-worktrees.noindex/foo"),
+        wt,
+      ),
+    ).toHaveLength(0);
+    expect(
+      select(quoted("cd /x/flow-worktrees.noindex/foo && flow-ci-wait"), wt),
+    ).toHaveLength(0);
   });
 
   it("should never select a shell it cannot unwrap", () => {
-    expect(select(`/bin/zsh -c cat ${STATE}/foo.json`, [{ slug: "foo" }], {}, {
-      procs: [claude, row({ command: `/bin/zsh -c cat ${STATE}/foo.json` })],
-    })).toHaveLength(0);
+    expect(
+      select(
+        `/bin/zsh -c cat ${STATE}/foo.json`,
+        [{ slug: "foo" }],
+        {},
+        {
+          procs: [
+            claude,
+            row({ command: `/bin/zsh -c cat ${STATE}/foo.json` }),
+          ],
+        },
+      ),
+    ).toHaveLength(0);
   });
 
   it("should never select a no-tty node child of claude", () => {
@@ -210,7 +245,11 @@ describe("selectStaleShells", () => {
   });
 
   it("should mark the owner gone when the shell was reparented to init", () => {
-    const got = select(quoted("cat ~/.flow/state/foo.json"), [{ slug: "foo" }], { ppid: 1 });
+    const got = select(
+      quoted("cat ~/.flow/state/foo.json"),
+      [{ slug: "foo" }],
+      { ppid: 1 },
+    );
     expect(got[0].ownerAlive).toBe(false);
   });
 });

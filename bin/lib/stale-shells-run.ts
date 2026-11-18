@@ -113,7 +113,8 @@ export function sweepStaleShells(
   },
 ): StaleShellSweepResult {
   const procs = deps.listProcs();
-  if (procs === undefined) return emptyResult(opts.act, false, "ps-unavailable");
+  if (procs === undefined)
+    return emptyResult(opts.act, false, "ps-unavailable");
   const result = emptyResult(opts.act, true);
   if (opts.targets.length === 0) return result;
   const exclude = new Set([
@@ -196,7 +197,8 @@ function formatAge(sec: number): string {
   const s = Math.round(sec);
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  if (s < 86400)
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
 }
 

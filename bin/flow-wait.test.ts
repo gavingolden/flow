@@ -35,8 +35,20 @@ describe("parseWaitArgs", () => {
   it("should parse the full flag set and the condition after --", () => {
     expect(
       parseWaitArgs([
-        "--max-sec", "600", "--every", "5", "--state", "foo",
-        "--phase", "merged,gated", "--window", "@7", "--", "test", "-f", "x",
+        "--max-sec",
+        "600",
+        "--every",
+        "5",
+        "--state",
+        "foo",
+        "--phase",
+        "merged,gated",
+        "--window",
+        "@7",
+        "--",
+        "test",
+        "-f",
+        "x",
       ]),
     ).toEqual({
       maxSec: 600,
@@ -92,7 +104,10 @@ describe("runWait", () => {
     let n = 0;
     const r = await runWait(
       { ...base, slug: "foo", phases: ["merged"] },
-      fakeDeps({ readState: () => (n++ < 2 ? { exists: true, phase: "plan" } : { exists: false }) }),
+      fakeDeps({
+        readState: () =>
+          n++ < 2 ? { exists: true, phase: "plan" } : { exists: false },
+      }),
     );
     expect(r.outcome).toBe("state-gone");
   });
@@ -101,7 +116,10 @@ describe("runWait", () => {
     let n = 0;
     const r = await runWait(
       { ...base, slug: "foo", phases: ["merged"] },
-      fakeDeps({ readState: () => (++n <= 2 ? { exists: false } : { exists: true, phase: "merged" }) }),
+      fakeDeps({
+        readState: () =>
+          ++n <= 2 ? { exists: false } : { exists: true, phase: "merged" },
+      }),
     );
     expect(r.outcome).toBe("met");
     const never = await runWait(
@@ -113,13 +131,21 @@ describe("runWait", () => {
 
   it("should exit window-gone and phase-terminal", async () => {
     expect(
-      (await runWait({ ...base, window: "@7", condition: ["x"] }, fakeDeps({ windowGone: () => true }))).outcome,
+      (
+        await runWait(
+          { ...base, window: "@7", condition: ["x"] },
+          fakeDeps({ windowGone: () => true }),
+        )
+      ).outcome,
     ).toBe("window-gone");
     const r = await runWait(
       { ...base, slug: "foo", phases: ["merged"] },
       fakeDeps({ readState: () => ({ exists: true, phase: "needs-human" }) }),
     );
-    expect(r).toMatchObject({ outcome: "phase-terminal", phase: "needs-human" });
+    expect(r).toMatchObject({
+      outcome: "phase-terminal",
+      phase: "needs-human",
+    });
   });
 
   it("should check parent-gone before anything else", async () => {
@@ -135,12 +161,28 @@ describe("runWait", () => {
 
 describe("owningClaude", () => {
   const p = (pid: number, ppid: number, command: string): OrphanProc => ({
-    pid, ppid, pgid: pid, uid: 1, tty: null, ageSec: 1, cpuSec: 0, command, cwd: null,
+    pid,
+    ppid,
+    pgid: pid,
+    uid: 1,
+    tty: null,
+    ageSec: 1,
+    cpuSec: 0,
+    command,
+    cwd: null,
   });
 
   it("should find the nearest claude ancestor through the zsh wrapper", () => {
-    const procs = [p(1, 0, "launchd"), p(10, 1, "/Users/x/.local/bin/claude --y"), p(20, 10, "/bin/zsh -c eval"), p(30, 20, "bun flow-wait")];
-    expect(owningClaude(30, procs, () => 99)).toEqual({ pid: 10, startEpoch: 99 });
+    const procs = [
+      p(1, 0, "launchd"),
+      p(10, 1, "/Users/x/.local/bin/claude --y"),
+      p(20, 10, "/bin/zsh -c eval"),
+      p(30, 20, "bun flow-wait"),
+    ];
+    expect(owningClaude(30, procs, () => 99)).toEqual({
+      pid: 10,
+      startEpoch: 99,
+    });
   });
 
   it("should return null when no ancestor is claude", () => {
@@ -156,7 +198,9 @@ describe("run", () => {
       fakeDeps(),
     );
     expect(code).toBe(EXIT_CODES.timeout);
-    expect(JSON.parse(String(log.mock.calls[0][0]))).toMatchObject({ outcome: "timeout" });
+    expect(JSON.parse(String(log.mock.calls[0][0]))).toMatchObject({
+      outcome: "timeout",
+    });
     log.mockRestore();
   });
 
@@ -171,19 +215,45 @@ describe("flow-wait CLI (real process)", () => {
   const bun = spawnSync("bun", ["--version"]).status === 0;
   const script = path.join(__dirname, "flow-wait.ts");
 
-  it.skipIf(!bun)("should meet a passing condition with its own process group", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fw-"));
-    fs.writeFileSync(path.join(dir, "ok"), "");
-    const r = spawnSync("bun", [script, "--max-sec", "5", "--every", "1", "--", "test", "-f", path.join(dir, "ok")], {
-      encoding: "utf8",
-    });
-    fs.rmSync(dir, { recursive: true, force: true });
-    expect(r.status).toBe(0);
-    expect(JSON.parse(r.stdout.trim())).toMatchObject({ outcome: "met" });
-  }, 20_000);
+  it.skipIf(!bun)(
+    "should meet a passing condition with its own process group",
+    () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fw-"));
+      fs.writeFileSync(path.join(dir, "ok"), "");
+      const r = spawnSync(
+        "bun",
+        [
+          script,
+          "--max-sec",
+          "5",
+          "--every",
+          "1",
+          "--",
+          "test",
+          "-f",
+          path.join(dir, "ok"),
+        ],
+        {
+          encoding: "utf8",
+        },
+      );
+      fs.rmSync(dir, { recursive: true, force: true });
+      expect(r.status).toBe(0);
+      expect(JSON.parse(r.stdout.trim())).toMatchObject({ outcome: "met" });
+    },
+    20_000,
+  );
 
-  it.skipIf(!bun)("should time out with exit 3 on a failing condition", () => {
-    const r = spawnSync("bun", [script, "--max-sec", "1", "--every", "1", "--", "false"], { encoding: "utf8" });
-    expect(r.status).toBe(3);
-  }, 20_000);
+  it.skipIf(!bun)(
+    "should time out with exit 3 on a failing condition",
+    () => {
+      const r = spawnSync(
+        "bun",
+        [script, "--max-sec", "1", "--every", "1", "--", "false"],
+        { encoding: "utf8" },
+      );
+      expect(r.status).toBe(3);
+    },
+    20_000,
+  );
 });

@@ -33,7 +33,9 @@ const owner = proc({ pid: 50, ppid: 40, command: "claude --x" });
 const shell = proc({
   pid: 200,
   ppid: 50,
-  command: wrapped("until grep -q merged ~/.flow/state/foo.json; do sleep 20; done"),
+  command: wrapped(
+    "until grep -q merged ~/.flow/state/foo.json; do sleep 20; done",
+  ),
 });
 
 type Harness = {
@@ -44,7 +46,9 @@ type Harness = {
 
 function harness(
   procs: OrphanProc[],
-  over: Partial<StaleShellDeps> & { diesOn?: "SIGTERM" | "SIGKILL" | "never" } = {},
+  over: Partial<StaleShellDeps> & {
+    diesOn?: "SIGTERM" | "SIGKILL" | "never";
+  } = {},
 ): Harness {
   const live = new Set(procs.map((p) => p.pid));
   const signals: Array<[number, string]> = [];
@@ -81,7 +85,9 @@ describe("sweepStaleShells", () => {
     const r = sweepStaleShells(h.deps, { act: false, targets: TARGETS });
     expect(r.found.map((s) => s.pid)).toEqual([200]);
     expect(h.signals).toEqual([]);
-    expect(renderStaleShellLines(r)[0]).toMatch(/^would stop background shell 200/);
+    expect(renderStaleShellLines(r)[0]).toMatch(
+      /^would stop background shell 200/,
+    );
   });
 
   it("should SIGTERM the group and stop once it exits", () => {
@@ -90,8 +96,12 @@ describe("sweepStaleShells", () => {
     expect(h.signals).toEqual([[200, "SIGTERM"]]);
     expect(staleShellsStopped(r)).toBe(1);
     const [line] = renderStaleShellLines(r);
-    expect(line).toContain("stopped background shell 200 (live session 50 in tmux window foo-pipeline (@3), 2h 0m)");
-    expect(line).toContain(`watched ${STATE}/foo.json (pipeline closed): until grep`);
+    expect(line).toContain(
+      "stopped background shell 200 (live session 50 in tmux window foo-pipeline (@3), 2h 0m)",
+    );
+    expect(line).toContain(
+      `watched ${STATE}/foo.json (pipeline closed): until grep`,
+    );
   });
 
   it("should SIGKILL a group that ignores SIGTERM", () => {
@@ -138,9 +148,15 @@ describe("sweepStaleShells", () => {
 
   it("should leave registry pids and the caller's own ancestry alone", () => {
     const own = harness([pane, owner, shell], { selfPid: 200 });
-    expect(sweepStaleShells(own.deps, { act: true, targets: TARGETS }).found).toEqual([]);
-    const reg = harness([pane, owner, shell], { registeredPids: () => new Set([200]) });
-    expect(sweepStaleShells(reg.deps, { act: true, targets: TARGETS }).found).toEqual([]);
+    expect(
+      sweepStaleShells(own.deps, { act: true, targets: TARGETS }).found,
+    ).toEqual([]);
+    const reg = harness([pane, owner, shell], {
+      registeredPids: () => new Set([200]),
+    });
+    expect(
+      sweepStaleShells(reg.deps, { act: true, targets: TARGETS }).found,
+    ).toEqual([]);
   });
 
   it("should skip the sweep when the process table is unavailable", () => {
@@ -151,13 +167,19 @@ describe("sweepStaleShells", () => {
 
   it("should stop signalling past the deadline", () => {
     const h = harness([pane, owner, shell]);
-    const r = sweepStaleShells(h.deps, { act: true, targets: TARGETS, deadlineMs: 0 });
+    const r = sweepStaleShells(h.deps, {
+      act: true,
+      targets: TARGETS,
+      deadlineMs: 0,
+    });
     expect(h.signals).toEqual([]);
     expect(r.signalled).toEqual([]);
   });
 
   it("should do nothing without targets", () => {
     const h = harness([pane, owner, shell]);
-    expect(sweepStaleShells(h.deps, { act: true, targets: [] }).found).toEqual([]);
+    expect(sweepStaleShells(h.deps, { act: true, targets: [] }).found).toEqual(
+      [],
+    );
   });
 });

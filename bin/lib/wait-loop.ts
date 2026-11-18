@@ -94,7 +94,9 @@ export function parseWaitArgs(
       out.phases = value.split(",").filter(Boolean);
     } else if (flag === "--window") {
       if (!value || !/^@\d+$/.test(value)) {
-        return { error: `--window must be a tmux window id like @7, got '${value ?? ""}'` };
+        return {
+          error: `--window must be a tmux window id like @7, got '${value ?? ""}'`,
+        };
       }
       out.window = value;
     } else {
@@ -105,14 +107,17 @@ export function parseWaitArgs(
   if (out.maxSec > WAIT_MAX_SEC_CAP) {
     return { error: `--max-sec must be at most ${WAIT_MAX_SEC_CAP}` };
   }
-  if (out.phases && !out.slug) return { error: "--phase requires --state <slug>" };
+  if (out.phases && !out.slug)
+    return { error: "--phase requires --state <slug>" };
   if (out.phases?.length === 0) return { error: "--phase requires a value" };
   if (sep !== -1 && condition.length === 0) {
     return { error: "-- must be followed by a condition command" };
   }
   if (condition.length > 0) out.condition = condition;
   if (!out.phases && !out.condition) {
-    return { error: "give --phase (with --state) or a condition command after --" };
+    return {
+      error: "give --phase (with --state) or a condition command after --",
+    };
   }
   return out;
 }
@@ -130,7 +135,11 @@ export function owningClaude(
 ): { pid: number; startEpoch: number | null } | null {
   const byPid = new Map(procs.map((p) => [p.pid, p]));
   const seen = new Set<number>();
-  for (let p = byPid.get(selfPid); p && !seen.has(p.pid); p = byPid.get(p.ppid)) {
+  for (
+    let p = byPid.get(selfPid);
+    p && !seen.has(p.pid);
+    p = byPid.get(p.ppid)
+  ) {
     seen.add(p.pid);
     if (p.pid === selfPid) continue;
     const argv0 = p.command.trimStart().split(/\s+/, 1)[0] ?? "";

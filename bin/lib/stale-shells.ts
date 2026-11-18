@@ -87,11 +87,13 @@ function startsFlowHelper(cmd: string): boolean {
 
 const NAME_CHARS = String.raw`[^\s"'` + "`" + String.raw`;&|()<>\\$]`;
 const SEGMENT_CHARS = String.raw`[^\s/"'` + "`" + String.raw`;&|()<>\\$]`;
-const ASSIGN = String.raw`(?:^|[\s;&|(])([A-Za-z_]\w*)=(?:"([^"$` + "`" + String.raw`\\]*)"|'([^']*)'|([^\s;&|"'$` + "`" + String.raw`()]+))`;
-const VAR_OR_ASSIGN = new RegExp(
-  `${ASSIGN}|\\$\\{(\\w+)\\}|\\$(\\w+)`,
-  "g",
-);
+const ASSIGN =
+  String.raw`(?:^|[\s;&|(])([A-Za-z_]\w*)=(?:"([^"$` +
+  "`" +
+  String.raw`\\]*)"|'([^']*)'|([^\s;&|"'$` +
+  "`" +
+  String.raw`()]+))`;
+const VAR_OR_ASSIGN = new RegExp(`${ASSIGN}|\\$\\{(\\w+)\\}|\\$(\\w+)`, "g");
 
 function expandVariables(text: string, home: string): string {
   const vars = new Map<string, string>([["HOME", home]]);
@@ -169,7 +171,9 @@ export function ancestryOf(pid: number, procs: OrphanProc[]): Set<number> {
 
 function previewOf(cmd: string): string {
   const flat = cmd.replace(/\\012/g, " ").replace(/\s+/g, " ").trim();
-  return flat.length > PREVIEW_MAX ? `${flat.slice(0, PREVIEW_MAX - 1)}…` : flat;
+  return flat.length > PREVIEW_MAX
+    ? `${flat.slice(0, PREVIEW_MAX - 1)}…`
+    : flat;
 }
 
 export function selectStaleShells(
