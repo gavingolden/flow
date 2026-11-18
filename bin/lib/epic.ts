@@ -87,6 +87,7 @@ import {
   backoffMsForAttempt,
   ensureLaunchSettings,
   stillStartingHint,
+  pipelineAddDirs,
 } from "./feature";
 import { releaseReservedWorktree, reserveWorktreeSlot } from "./worktree-slot";
 import {
@@ -96,6 +97,7 @@ import {
   setWindowEpic,
   windowExists,
   isPaneAlive,
+  capturePaneBySlug,
   FLOW_SESSION,
   SEED_CORRUPTED_STDERR,
   type VerifiedLaunchResult,
@@ -873,7 +875,7 @@ PR → review checkpoint), and writes initial epic state under
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
   if (result.status === "launched-not-confirmed") {
-    printStillStarting("flow epic create", slug, result.stderr);
+    printStillStarting("flow epic create", slug, worktree, result.stderr);
   } else {
     console.log(
       dim(`flow epic create: created — attach with \`flow attach ${slug}\``),
@@ -883,11 +885,22 @@ PR → review checkpoint), and writes initial epic state under
 }
 
 /** Launched but unconfirmed: the window is alive, so say it is still starting (never "created"/"started") and name the trust-question reason. Stderr only — stdout stays the contract token. */
-function printStillStarting(cmd: string, slug: string, stderr: string): void {
+function printStillStarting(
+  cmd: string,
+  slug: string,
+  worktree: string,
+  stderr: string,
+): void {
   console.error(
     dim(`${cmd}: launched; supervisor still starting — attach to verify`),
   );
-  console.error(dim(stillStartingHint(slug)));
+  for (const line of stillStartingHint(
+    slug,
+    capturePaneBySlug(slug),
+    pipelineAddDirs(worktree),
+  )) {
+    console.error(dim(line));
+  }
   if (stderr) console.error(dim(`  ${stderr}`));
 }
 
@@ -1104,7 +1117,12 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // real transition is what updates state.json.
   console.log(`${FLOW_SESSION}:${slug}`);
   if (result.status === "launched-not-confirmed") {
-    printStillStarting("flow epic create --resume", slug, result.stderr);
+    printStillStarting(
+      "flow epic create --resume",
+      slug,
+      worktree,
+      result.stderr,
+    );
   } else {
     console.log(
       dim(`flow epic create: resumed — attach with \`flow attach ${slug}\``),
@@ -1446,7 +1464,7 @@ function spawnEpicRunSupervisor(
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
   if (result.status === "launched-not-confirmed") {
-    printStillStarting("flow epic run", slug, result.stderr);
+    printStillStarting("flow epic run", slug, worktree, result.stderr);
   } else {
     console.log(
       dim(

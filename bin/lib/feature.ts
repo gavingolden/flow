@@ -38,8 +38,10 @@ import {
   SEED_CORRUPTED_STDERR,
   setWindowEpic,
   setPaneKind,
+  capturePaneBySlug,
   type VerifiedLaunchResult,
 } from "./tmux";
+import { detectTrustDialog, trustDialogSteps } from "./trust-dialog";
 import { livenessOf, pidStartEpoch } from "./liveness";
 import {
   readState,
@@ -1421,7 +1423,14 @@ function runFresh(
         "flow feature create: launched; supervisor still starting — attach to verify",
       ),
     );
-    console.error(dim(stillStartingHint(slug)));
+    for (const line of stillStartingHint(
+      slug,
+      capturePaneBySlug(slug),
+      pipelineAddDirs(worktree, overlay?.addDir),
+      overlay?.addDir,
+    )) {
+      console.error(dim(line));
+    }
     // Defensive: surface any stderr rather than silently dropping it.
     if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
@@ -1778,7 +1787,14 @@ function runResume(
         "flow feature resume: launched; supervisor still starting — attach to verify",
       ),
     );
-    console.error(dim(stillStartingHint(slug)));
+    for (const line of stillStartingHint(
+      slug,
+      capturePaneBySlug(slug),
+      pipelineAddDirs(worktree, overlay?.addDir),
+      overlay?.addDir,
+    )) {
+      console.error(dim(line));
+    }
     // Defensive: surface any stderr rather than silently dropping it.
     if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
@@ -1917,6 +1933,14 @@ function launchArgv(
  * feature targets), not scope creep beyond the plan's `launch.ts`-only
  * naming for Task 5's bare-`flow` launcher.
  */
+/** Every folder a pipeline's claude session is launched with `--add-dir`; the trust-question hint reads the same list. */
+export function pipelineAddDirs(
+  worktree: string,
+  overlayDir?: string,
+): string[] {
+  return [worktree, flowClaudeHome(), ...(overlayDir ? [overlayDir] : [])];
+}
+
 function claudeArgv(
   name: string,
   worktree: string,
@@ -1930,11 +1954,7 @@ function claudeArgv(
   // never `~/.flow` or the whole overlays dir: sub-skills Read siblings from it.
   const base = [
     "claude",
-    "--add-dir",
-    worktree,
-    "--add-dir",
-    flowClaudeHome(),
-    ...(overlayDir ? ["--add-dir", overlayDir] : []),
+    ...pipelineAddDirs(worktree, overlayDir).flatMap((d) => ["--add-dir", d]),
     "--name",
     name,
     ...pluginDirArgs(roots),
@@ -2303,9 +2323,24 @@ function buildPlainCommand(
   );
 }
 
-/** Names the likeliest reason a launched window has not confirmed: the folder-trust question holds the start command until answered. */
-export function stillStartingHint(slug: string): string {
-  return `  if Claude Code is asking whether you trust this folder: flow attach ${slug} and choose "Yes, I trust this folder" — it then starts by itself; if the start command sits in the input box, press Enter there`;
+/** Names the likeliest reason a launched window has not confirmed: a trust question holds the start command until answered. Numbered steps either way; with no question on screen yet they cover both questions. */
+export function stillStartingHint(
+  slug: string,
+  pane?: string,
+  addedFolders: readonly string[] = [],
+  overlayDir?: string,
+): string[] {
+  const dialog = detectTrustDialog(pane ?? "", addedFolders);
+  const claudeHome = flowClaudeHome();
+  const steps = trustDialogSteps(slug, dialog, {
+    addedFolders,
+    perPipelineFolders: addedFolders.filter((f) => f !== claudeHome),
+    flowOwnedParents: overlayDir ? [path.dirname(overlayDir)] : [],
+  });
+  return [
+    "  if Claude Code is asking a trust question, do this:",
+    ...steps.map((step, i) => `  ${i + 1}. ${step}`),
+  ];
 }
 
 /**

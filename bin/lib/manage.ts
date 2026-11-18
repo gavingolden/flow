@@ -48,6 +48,12 @@ import {
 } from "./plugin-root";
 import { sleepSync } from "./sleep";
 import {
+  detectTrustDialog,
+  tildePath,
+  trustDialogSteps,
+  type TrustDialog,
+} from "./trust-dialog";
+import {
   EFFORT_LEVELS,
   FINISHED_PHASE_SET,
   listStates,
@@ -72,13 +78,11 @@ export const MANAGER_CHECKIN_TIMEOUT_MS = 90_000;
 const CHECKIN_POLL_MS = 1000;
 const CHECKIN_PROGRESS_MS = 15_000;
 
-export type ManagerCheckIn = "checked-in" | "trust-prompt" | "dead" | "timeout";
+export type ManagerCheckIn =
+  | { status: "trust-prompt"; dialog: TrustDialog }
+  | { status: "checked-in" | "dead" | "timeout" };
 
-/** True only for Claude Code's folder-trust menu: both option lines must be on screen, so a pane that merely echoes the start command never matches. */
-export function paneShowsTrustMenu(captured: string): boolean {
-  const text = captured.replace(/\s+/g, " ").toLowerCase();
-  return text.includes("yes, i trust this folder") && text.includes("no, exit");
-}
+const managerAddDirs = (): string[] => [flowClaudeHome()];
 
 /** Waits for the manager's first check-in; pane text only picks the message, never the outcome of a check-in. */
 export function awaitManagerCheckIn(opts: {
@@ -90,13 +94,27 @@ export function awaitManagerCheckIn(opts: {
   onProgress?: (elapsedMs: number) => void;
 }): ManagerCheckIn {
   for (let elapsed = 0; ; elapsed += CHECKIN_POLL_MS) {
-    if (opts.consumed()) return "checked-in";
-    if (!opts.isAlive()) return "dead";
-    if (paneShowsTrustMenu(opts.readPane())) return "trust-prompt";
-    if (elapsed >= opts.timeoutMs) return "timeout";
+    if (opts.consumed()) return { status: "checked-in" };
+    if (!opts.isAlive()) return { status: "dead" };
+    const dialog = detectTrustDialog(opts.readPane(), managerAddDirs());
+    if (dialog) return { status: "trust-prompt", dialog };
+    if (elapsed >= opts.timeoutMs) return { status: "timeout" };
     opts.onProgress?.(elapsed);
     opts.sleep(CHECKIN_POLL_MS);
   }
+}
+
+function reportTrustDialog(dialog: TrustDialog): void {
+  const asking =
+    dialog.kind === "folder"
+      ? "whether you trust ~/.flow/manager"
+      : `to add ${dialog.folder ? tildePath(dialog.folder) : "a folder"}`;
+  console.error(
+    `flow manage: the manager has not started — Claude Code is asking ${asking}`,
+  );
+  trustDialogSteps("manager", dialog, {
+    addedFolders: managerAddDirs(),
+  }).forEach((step, i) => console.error(`  ${i + 1}. ${step}`));
 }
 
 function makeCheckInProgress(): (elapsedMs: number) => void {
@@ -289,8 +307,7 @@ function launchCommand(
     "claude",
     "--name",
     MANAGER_WINDOW,
-    "--add-dir",
-    flowClaudeHome(),
+    ...managerAddDirs().flatMap((d) => ["--add-dir", d]),
     ...pluginDirArgs(roots),
     "--model",
     record.model,
@@ -371,6 +388,14 @@ export function runManageCli(
   if (exists(MANAGER_WINDOW)) {
     const open = readManagerRecord(home);
     if (!open || !managerLaunchConsumed(home, open.startedAt)) {
+      const dialog = detectTrustDialog(
+        (options.readPane ?? ((n) => capturePaneBySlug(n)))(MANAGER_WINDOW),
+        managerAddDirs(),
+      );
+      if (dialog) {
+        reportTrustDialog(dialog);
+        return 2;
+      }
       return fail(
         "the manager window is open but has not started yet — attach (flow attach manager) and answer what is on screen, or close it with flow manage --stop",
       );
@@ -513,21 +538,15 @@ export function runManageCli(
     onProgress: makeCheckInProgress(),
   });
   if (process.stderr.isTTY === true) process.stderr.write("\r\x1b[2K");
-  if (checkIn === "checked-in") {
+  if (checkIn.status === "checked-in") {
     console.log("manager started — attach with: flow attach manager");
     return 0;
   }
-  if (checkIn === "trust-prompt") {
-    console.error(
-      "flow manage: the manager has not started — Claude Code is asking whether you trust ~/.flow/manager",
-    );
-    console.error("  1. flow attach manager");
-    console.error(
-      '  2. choose "Yes, I trust this folder" — the manager then starts by itself (if /flow-manage sits in the input box, press Enter)',
-    );
+  if (checkIn.status === "trust-prompt") {
+    reportTrustDialog(checkIn.dialog);
     return 2;
   }
-  if (checkIn === "timeout") {
+  if (checkIn.status === "timeout") {
     console.error(
       `flow manage: the manager window opened but has not checked in after ${Math.round(checkInMs / 1000)}s — it may still be starting`,
     );

@@ -73,6 +73,7 @@ const tmuxMock = vi.hoisted(() => ({
   setWindowEpic: vi.fn<
     (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
+  capturePaneBySlug: vi.fn<(slug: string) => string>(() => ""),
   FLOW_SESSION: "flow",
   SEED_CORRUPTED_STDERR:
     "seed delivery corrupted — the launch prompt did not arrive intact",
@@ -236,6 +237,7 @@ import {
 import { materializeSkillOverlay } from "./skill-overlay";
 import * as grantsModule from "./manager-grants";
 import { readManagerLog } from "./manager-log";
+import { tildePath } from "./trust-dialog";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -254,6 +256,7 @@ const realReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
 };
 
 beforeEach(() => {
+  tmuxMock.capturePaneBySlug.mockReset().mockReturnValue("");
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-"));
   defaultOverlaysDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "flow-new-overlays-"),
@@ -890,6 +893,7 @@ describe("runFresh resume — still starting", () => {
     const err = errors.join("\n");
     expect(err).toContain("supervisor still starting");
     expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("Yes, add it");
     expect(err).toContain("press Enter");
   });
 });
@@ -1375,6 +1379,7 @@ describe("runNew (fresh)", () => {
     expect(logs[0]).toBe("flow:csv-export");
     const err = errors.join("\n");
     expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("Yes, add it");
     expect(err).toContain("press Enter");
     expect(err).toContain("flow attach csv-export");
   });
@@ -5182,6 +5187,71 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
         "utf8",
       ),
     ).toBe("skill v1\n");
+  });
+
+  const parentLabel = () => tildePath(overlaysDir);
+  const addDirPane = (slug: string) =>
+    `Adding a new directory:\n${path.join(overlaysDir, slug)}\n\n❯ No, exit\n  Yes, add it`;
+
+  it("still starting (create): the add-directory question for the skill copy names the overlay parent to trust once", () => {
+    flowLike(repoDir);
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "launched-not-confirmed",
+      stderr: "",
+    });
+    tmuxMock.capturePaneBySlug.mockReturnValue(addDirPane("csv-export"));
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: fs.realpathSync(repoDir) }),
+    );
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:csv-export");
+    const err = errors.join("\n");
+    expect(err).toContain("Yes, add it");
+    expect(err).toContain("No, exit");
+    expect(err).toContain(`cd ${parentLabel()} && claude`);
+  });
+
+  it("still starting (resume): the add-directory question for the skill copy names the overlay parent to trust once", () => {
+    seedState("csv-export");
+    const src = path.join(scratch, "src");
+    flowLike(src);
+    materializeSkillOverlay({
+      slug: "csv-export",
+      contentSource: src,
+      installRoot: src,
+      moduleIds: ["core"],
+      overlaysDir,
+    });
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    tmuxMock.respawnWindowVerified.mockReturnValue({
+      status: "launched-not-confirmed",
+      stderr: "",
+    });
+    tmuxMock.capturePaneBySlug.mockReturnValue(addDirPane("csv-export"));
+    const code = runNew("csv-export", baseOptions({ resume: true }));
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:csv-export");
+    const err = errors.join("\n");
+    expect(err).toContain("Yes, add it");
+    expect(err).toContain(`cd ${parentLabel()} && claude`);
+  });
+
+  it("still starting (create): with no question on screen the generic line names the one-time overlay trust step", () => {
+    flowLike(repoDir);
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "launched-not-confirmed",
+      stderr: "",
+    });
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: fs.realpathSync(repoDir) }),
+    );
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toContain(`cd ${parentLabel()} && claude`);
   });
 
   it("a consumer repo without the flag keeps the shared roots and builds no copy", () => {
