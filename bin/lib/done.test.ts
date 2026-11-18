@@ -148,7 +148,27 @@ vi.mock("./epic-merge-latch", async () => {
   return { ...actual, latchEpicBinding: latchMock.latchEpicBinding };
 });
 
+// The real sweep needs exports these partial module mocks lack (statePath,
+// pidStartEpoch, a pane read), so no test runs it: the default is an empty
+// result and the stale-shell cases below inject their own `staleShellSweep`.
+vi.mock("./stale-shells-run", () => ({
+  defaultStaleShellDeps: () => ({}),
+  sweepStaleShells: () => ({
+    ran: true,
+    act: false,
+    found: [],
+    windows: {},
+    signalled: [],
+    killed: [],
+    stillAlive: [],
+    skippedRecycled: [],
+  }),
+  renderStaleShellLines: () => [],
+  STALE_SHELL_MIN_AGE_SEC: 60,
+}));
+
 import { runDone, runDoneCli, REAP_TIMEOUT_MS } from "./done";
+import type { StaleShellSweepResult } from "./stale-shells-run";
 import { LockTimeoutError } from "./lock";
 
 const state = (overrides: {
@@ -1457,5 +1477,129 @@ describe("epic launch-record latch", () => {
       "kept lt-note merged on epic e (PR #977)",
     );
     log.mockRestore();
+  });
+});
+
+describe("stale-shell sweep", () => {
+  const shell = (pid: number) => ({
+    pid,
+    pgid: pid,
+    ownerPid: 50,
+    ownerAlive: true,
+    ageSec: 7200,
+    refs: [{ kind: "state-file" as const, path: "/s/foo.json" }],
+    preview: "until grep merged; do sleep 20; done",
+  });
+  const result = (
+    act: boolean,
+    pids: number[],
+  ): StaleShellSweepResult => ({
+    ran: true,
+    act,
+    found: pids.map(shell),
+    windows: {},
+    signalled: act ? pids : [],
+    killed: [],
+    stillAlive: [],
+    skippedRecycled: [],
+  });
+
+  let logs: string[];
+  beforeEach(() => {
+    logs = [];
+    vi.spyOn(console, "log").mockImplementation((m: string) => {
+      logs.push(String(m));
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("should sweep with the recorded worktree and act when closing a single slug", () => {
+    stateMock.readState.mockReturnValue({
+      ...state({ slug: "foo", phase: "merged" }),
+      worktree: "/w/flow-worktrees.noindex/foo",
+    } as never);
+    const seam = vi.fn((_t: unknown, act: boolean) => result(act, [200]));
+
+    const code = runDone("foo", { yes: true, staleShellSweep: seam });
+
+    expect(code).toBe(0);
+    const actCall = seam.mock.calls.find((c) => c[1] === true);
+    expect(actCall?.[0]).toEqual([
+      { slug: "foo", worktree: "/w/flow-worktrees.noindex/foo" },
+    ]);
+  });
+
+  it("should fold the count into the existing confirm prompt", () => {
+    stateMock.readState.mockReturnValue(state({ slug: "foo", phase: "merged" }));
+    readSyncMock.mockImplementation((_fd, buf) => {
+      Buffer.from("n\n").copy(buf);
+      return 2;
+    });
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const seam = vi.fn((_t: unknown, act: boolean) => result(act, [200]));
+
+    runDone("foo", { staleShellSweep: seam });
+
+    const prompt = out.mock.calls.map((c) => String(c[0])).join("");
+    expect(prompt).toContain(
+      "close pipeline 'foo' and stop 1 background wait in another session?",
+    );
+    expect(seam.mock.calls.every((c) => c[1] === false)).toBe(true);
+  });
+
+  it("should still stop shells on a re-run once the window and state are gone", () => {
+    const seam = vi.fn((_t: unknown, act: boolean) => result(act, [200]));
+
+    const code = runDone("foo", { yes: true, staleShellSweep: seam });
+
+    expect(code).toBe(0);
+    expect(seam.mock.calls.some((c) => c[1] === true)).toBe(true);
+  });
+
+  it("should still refuse a slug with nothing to close when no shell matches", () => {
+    const seam = vi.fn((_t: unknown, act: boolean) => result(act, []));
+    expect(runDone("foo", { yes: true, staleShellSweep: seam })).toBe(1);
+  });
+
+  it("should print nothing about shells when none were found", () => {
+    stateMock.readState.mockReturnValue(state({ slug: "foo", phase: "merged" }));
+    const quiet = vi.fn((_t: unknown, act: boolean) => result(act, []));
+    runDone("foo", { yes: true, staleShellSweep: quiet });
+    expect(logs.some((l) => l.includes("background shell"))).toBe(false);
+  });
+
+  it("should swallow a sweep error with a one-line note and still close", () => {
+    stateMock.readState.mockReturnValue(state({ slug: "foo", phase: "merged" }));
+    const seam = vi.fn(() => {
+      throw new Error("boom");
+    });
+
+    const code = runDone("foo", { yes: true, staleShellSweep: seam });
+
+    expect(code).toBe(0);
+    expect(logs.some((l) => l.includes("background-shell sweep skipped: boom"))).toBe(true);
+    expect(logs.some((l) => l.includes("closed:"))).toBe(true);
+  });
+
+  it("should sweep once for the pipelines a --merged sweep actually closes", () => {
+    const a = state({ slug: "a", phase: "merged" });
+    const b = state({ slug: "b", phase: "merged" });
+    stateMock.listStates.mockReturnValue([a, b]);
+    stateMock.readState.mockImplementation((slug: string) =>
+      slug === "a" ? a : b,
+    );
+    latchMock.latchEpicBinding.mockImplementation((st: unknown) => {
+      if ((st as { slug: string }).slug === "b") throw new Error("lock held");
+      return [];
+    });
+    const seam = vi.fn((_t: unknown, act: boolean) => result(act, []));
+
+    runDone(undefined, { merged: true, yes: true, staleShellSweep: seam });
+
+    const acts = seam.mock.calls.filter((c) => c[1] === true);
+    expect(acts).toHaveLength(1);
+    expect(acts[0][0]).toEqual([{ slug: "a" }]);
   });
 });

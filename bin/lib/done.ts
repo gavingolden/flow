@@ -41,6 +41,13 @@ import { releaseReservedWorktree } from "./worktree-slot";
 import { dim } from "./color";
 import { compact, readRows } from "./proc-registry";
 import {
+  confirmSuffix,
+  countStaleShells,
+  stopStaleShells,
+  targetsOf,
+  type StaleShellSweepSeam,
+} from "./done-stale-shells";
+import {
   describeLatchFailure,
   formatLatchNote,
   latchEpicBinding,
@@ -95,6 +102,12 @@ export type DoneOptions = {
    * pipeline open so the merge is never lost with the state file.
    */
   epicLatch?: (state: PipelineState) => EpicLatchResult[];
+  /**
+   * Stale-shell sweep seam (test only) — defaults to the real
+   * `sweepStaleShells`. Stops Claude Code background shells that only watch
+   * the pipelines being closed; best-effort, never fails `flow done`.
+   */
+  staleShellSweep?: StaleShellSweepSeam;
   /**
    * Clock seam for the `sweep()` cumulative registry-reap budget (test
    * only) — defaults to `Date.now`. Lets a test exercise the
@@ -346,13 +359,33 @@ export function runDone(
   // registry gets reaped rather than bouncing off this guard.
   const hasRows = hasRegistryRows(name);
 
+  const staleTargets = targetsOf([
+    { slug: name, worktree: recordedState?.worktree },
+  ]);
+  const waiting = countStaleShells(options.staleShellSweep, staleTargets);
+
   if (!hasWindow && !hasState && !hasRows) {
-    console.error(`flow done: no window or state for '${name}'.`);
-    return 1;
+    // A re-run after the window and state are gone can still own shells
+    // watching that slug's state file.
+    if (waiting === 0) {
+      console.error(`flow done: no window or state for '${name}'.`);
+      return 1;
+    }
+    if (
+      !options.yes &&
+      !confirm(
+        `stop ${waiting} background wait${waiting === 1 ? "" : "s"} watching closed pipeline '${name}'?`,
+      )
+    ) {
+      console.log(dim("flow done: aborted — nothing closed"));
+      return 0;
+    }
+    stopStaleShells(options.staleShellSweep, staleTargets);
+    return 0;
   }
 
   if (!options.yes) {
-    if (!confirm(`close pipeline '${name}'?`)) {
+    if (!confirm(`close pipeline '${name}'${confirmSuffix(waiting)}?`)) {
       console.log(dim("flow done: aborted — nothing closed"));
       return 0;
     }
@@ -362,6 +395,7 @@ export function runDone(
     return 1;
 
   safeBrowserTeardown(name, options);
+  stopStaleShells(options.staleShellSweep, staleTargets);
 
   let warned = false;
   if (hasWindow) {
@@ -485,9 +519,10 @@ function sweep(
 ): number {
   console.log(`will close ${states.length} pipeline(s):`);
   for (const s of states) console.log(format(s));
+  const waiting = countStaleShells(options.staleShellSweep, targetsOf(states));
 
   if (!options.yes) {
-    if (!confirm("proceed?")) {
+    if (!confirm(`proceed${confirmSuffix(waiting)}?`)) {
       console.log(dim("flow done: aborted — nothing closed"));
       return 0;
     }
@@ -501,6 +536,7 @@ function sweep(
   // sweep for up to N x REAP_TIMEOUT_MS.
   const reapDeadline = now() + DONE_REAP_BUDGET_MS;
   let latchFailed = false;
+  const closed: PipelineState[] = [];
   for (const s of states) {
     if (
       s.phase !== "unknown" &&
@@ -539,7 +575,10 @@ function sweep(
     releaseReservedWorktree(s.reservedWorktree);
     deleteTurnTracking(s.slug);
     deleteCheckpointDir(s.slug);
+    closed.push(s);
     console.log(`closed: ${s.slug}`);
   }
+  // Only pipelines that actually closed: a latch-kept one keeps its waits.
+  stopStaleShells(options.staleShellSweep, targetsOf(closed));
   return latchFailed ? 1 : 0;
 }
