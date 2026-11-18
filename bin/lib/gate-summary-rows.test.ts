@@ -8,15 +8,15 @@ import {
 
 describe("needsInstallLabel", () => {
   it("names the new skill, not the existing verb the step quotes", () => {
-    const label = needsInstallLabel({ name: "flow-new-thing", kind: "skill" });
-    expect(label).toContain("`/flow-new-thing`");
-    expect(label).not.toContain("bun bin/flow status");
+    expect(needsInstallLabel({ name: "flow-new-thing", kind: "skill" })).toBe(
+      " — needs this branch installed: run `flow feature create --skills-from <worktree>` to load `/flow-new-thing` from this branch, or mark the step `After merge:`",
+    );
   });
 
   it("names the new helper, not an existing helper", () => {
-    const label = needsInstallLabel({ name: "flow-gate-x", kind: "helper" });
-    expect(label).toContain("bun bin/flow-gate-x.ts");
-    expect(label).not.toContain("flow-ci-wait");
+    expect(needsInstallLabel({ name: "flow-gate-x", kind: "helper" })).toBe(
+      " — needs this branch installed: run `bun bin/flow-gate-x.ts` in the worktree, or mark the step `After merge:`",
+    );
   });
 
   it("names the verb's runnable form", () => {

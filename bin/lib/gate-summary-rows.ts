@@ -129,7 +129,7 @@ export function needsInstallLabel(
   if (kind === "verb")
     return ` — needs this branch installed: run \`bun bin/flow ${name}\` in the worktree, or mark the step \`After merge:\``;
   if (kind === "skill")
-    return ` — needs this branch installed: a session loads \`/${name}\` from the installed skills, so mark the step \`After merge:\``;
+    return ` — needs this branch installed: run \`flow feature create --skills-from <worktree>\` to load \`/${name}\` from this branch, or mark the step \`After merge:\``;
   return NEEDS_INSTALL_LABEL;
 }
 const GITHUB_MERGE_LINE =

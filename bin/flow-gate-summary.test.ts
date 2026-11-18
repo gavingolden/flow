@@ -3179,7 +3179,9 @@ describe("after-merge rows", () => {
         validationItems: [item],
         needsInstallItems: [{ item, name: "flow-new-thing", kind: "skill" }],
       });
-      expect(out).toContain("a session loads `/flow-new-thing`");
+      expect(out).toContain(
+        "run `flow feature create --skills-from <worktree>` to load `/flow-new-thing` from this branch",
+      );
       expect(out).not.toContain("bun bin/flow status");
     }
   });
