@@ -214,6 +214,11 @@ export function windowExists(slug: string, session = FLOW_SESSION): boolean {
   return findWindowBySlug(listWindows(session), slug) !== undefined;
 }
 
+/** True when the tmux binary can be run at all (a version probe, no server needed). */
+export function tmuxAvailable(): boolean {
+  return tmux(["-V"]).exitCode === 0;
+}
+
 /**
  * Whether a tmux window id (`@7`) exists on any session. Answers `true` when
  * tmux cannot be queried at all (not installed), so a caller waiting on the

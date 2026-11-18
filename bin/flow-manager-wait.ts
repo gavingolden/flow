@@ -19,7 +19,8 @@
  * and never becomes the long waiter itself. Events are written to `wake.json`
  * the moment they are found and stay there until `flow-manager-ctl ack`, so a
  * crash or `/clear` mid-wake loses nothing; a re-armed waiter re-emits them.
- * Exit 0 always, 2 on bad arguments.
+ * Exit 0 always, 2 on bad arguments. It exits with outcome `manager-gone` when
+ * the manager record, its tmux window or its owning `claude` is gone.
  */
 
 import { createHash } from "node:crypto";
@@ -69,6 +70,12 @@ import {
   type PipelineState,
 } from "./lib/state";
 import { recordEvent, type TelemetryEventName } from "./lib/telemetry";
+import { pidStartEpoch } from "./lib/liveness";
+import { tmuxAvailable, windowExists } from "./lib/tmux";
+import { owningClaude } from "./lib/wait-loop";
+import type { OrphanProc } from "./lib/worktree-orphans";
+import { listOrphanProcs } from "./lib/worktree-orphans-ps";
+import { isAlive } from "./lib/worktree-orphans-run";
 
 const HELP =
   "usage: flow-manager-wait [--ensure] [--interval <s=5>] [--settle <s=10>] [--heartbeat <s>] [--stop-when-idle] [--max-sec <s=0>]";
@@ -128,7 +135,19 @@ export type WaitDeps = {
   notify?: (args: string[]) => void;
   out?: (line: string) => void;
   record?: (event: TelemetryEventName, attrs: Record<string, unknown>) => void;
+  /** Process table for finding the owning `claude` (undefined when unreadable). */
+  procs?: () => OrphanProc[] | undefined;
+  startEpochOf?: (pid: number) => number | null;
+  alive?: (pid: number) => boolean;
+  /** True only when the manager's tmux window is known to be gone. */
+  windowGone?: (name: string) => boolean;
 };
+
+// The manager is tmux-only by hard gate (`flow manage` refuses without tmux),
+// so its window vanishing means the manager is gone. When tmux itself cannot
+// be run, absence is unknowable and the waiter keeps waiting.
+const defaultWindowGone = (name: string): boolean =>
+  tmuxAvailable() && !windowExists(name);
 
 /** One stable proposal id per stale pipeline, in the generator's `p-<6 hex>` shape, so re-adding replaces it. */
 function staleProposalId(slug: string): string {
@@ -230,6 +249,29 @@ export async function run(
       home,
     );
   stamp(startedAt);
+
+  // The manager's `claude` can crash while its pane survives; `ppid === 1`
+  // never fires then because the `zsh` wrapper stays the waiter's parent, so
+  // watch the recorded `claude` itself.
+  const owner = (() => {
+    const table = (deps.procs ?? listOrphanProcs)();
+    return table
+      ? owningClaude(pid, table, deps.startEpochOf ?? pidStartEpoch)
+      : null;
+  })();
+  const alive = deps.alive ?? isAlive;
+  const startEpochOf = deps.startEpochOf ?? pidStartEpoch;
+  const managerGone = (): boolean => {
+    const rec = readManagerRecord(home);
+    if (rec === null) return true;
+    if ((deps.windowGone ?? defaultWindowGone)(rec.window)) return true;
+    return (
+      owner !== null &&
+      (!alive(owner.pid) ||
+        (owner.startEpoch !== null &&
+          startEpochOf(owner.pid) !== owner.startEpoch))
+    );
+  };
 
   let signaled = false;
   const onSignal = (): void => {
@@ -389,6 +431,10 @@ export async function run(
           settleMs: ms - firstEventMs,
         });
         emit("wake", all);
+        return 0;
+      }
+      if (managerGone()) {
+        emit("manager-gone");
         return 0;
       }
       if (args.maxSec > 0 && ms - startMs >= args.maxSec * 1000) {

@@ -68,6 +68,9 @@ The waiter prints `{"outcome","events","wakeFile","reread"}`.
   a fresh waiter re-emits them at once. Ack after you have acted.
 - `outcome: superseded` → a newer waiter took over; just `--ensure`.
 - `outcome: timeout` → only when started with `--max-sec`; `--ensure`.
+- `outcome: manager-gone` → this manager is no longer live (its record, tmux
+  window or `claude` session is gone); do not re-arm. The waiter exits 0 like
+  every other outcome, so branch on `outcome`, never the exit code.
 
 Event kinds: `transition` (from, to), `new`, `gone`, `merged-out-of-band`,
 `stale`, `idle`, `checkpoint-idle`, `scope-changed`, `new-candidate`,
