@@ -9,6 +9,18 @@ import * as path from "node:path";
 import { planCapture, routeSlug } from "./ui-capture-plan";
 import { nameKey, type CaptureConfig } from "./ui-capture-script";
 import type { Target } from "./ui-capture-args";
+import {
+  FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS,
+  FIX_CONTEXT_STRING_MAX_CHARS,
+} from "./ui-driver-schema";
+
+export const CAPTURE_BACKOFF = {
+  minMs: 5000,
+  maxMs: 15000,
+  budgetMs: 60000,
+} as const;
+export const RELOAD_STATUSES = [429, 503] as const;
+export const BODY_SETTLE_MS = 5000;
 
 export function buildCaptureConfig(i: {
   worktree: string;
@@ -56,5 +68,12 @@ export function buildCaptureConfig(i: {
     maxSectionsPerView: withDark.maxSectionsPerView,
     maxShotsPerTarget: withDark.maxShotsPerTarget,
     names,
+    backoff: { ...CAPTURE_BACKOFF },
+    reloadStatuses: [...RELOAD_STATUSES],
+    bodySettleMs: BODY_SETTLE_MS,
+    failureCaps: {
+      items: FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS,
+      urlChars: FIX_CONTEXT_STRING_MAX_CHARS,
+    },
   };
 }

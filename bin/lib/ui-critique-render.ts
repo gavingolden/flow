@@ -3,6 +3,7 @@
  * `DECISION:` items (unresolved defects, review did not run). Upserting them
  * into a PR body lives in `./ui-review-body`.
  */
+import { degradedForOutcome } from "./ui-capture-health";
 import { isGating, type CritiqueFinding, type LoopLog } from "./ui-critique";
 import {
   cell,
@@ -60,6 +61,8 @@ const PLAIN_REASONS: Record<string, string> = {
   "no-targets": "the plan names no pages to photograph",
   "non-local-base-url": "the app or login URL is not a local address",
   "no-review-record": "no UI review record for this PR",
+  "capture-degraded":
+    "the app rate-limited the screenshot run (429 Too Many Requests) on every screenshot, so nothing could be judged; re-run verify once the app is idle, or raise its local rate limit",
 };
 
 /** Skip and round reasons arrive as helper codes; the PR shows plain words. */
@@ -71,7 +74,13 @@ export function plainReason(reason: string): string {
     : reason;
 }
 
+const LEFT_OUT = "because the app was rate-limiting the screenshot run";
+
 function outcomeLine(log: LoopLog): string {
+  const d = degradedForOutcome(log);
+  if (log.outcome === "clean" && d && d.shots > 0) {
+    return `Clean on the screenshots that loaded: the critique found no defect or major issue (${d.shots} of ${d.of} screenshots left out ${LEFT_OUT}).`;
+  }
   const kind =
     log.round?.kind === "smell" ? "Layout repair round" : "Critique round";
   const why = log.round?.reason ? `: ${plainReason(log.round.reason)}` : "";
@@ -147,6 +156,14 @@ export function renderUiReview(i: {
     lines.push(`Not run: ${plainReason(log.skip)}`, "");
   } else {
     lines.push(outcomeLine(log), "");
+    const d = degradedForOutcome(log);
+    if (d && d.shots > 0 && log.outcome !== "clean") {
+      lines.push(
+        "> [!NOTE]",
+        `> ${d.shots} of ${d.of} screenshots were left out of the review ${LEFT_OUT}.`,
+        "",
+      );
+    }
     if (log.completed && log.headSha) {
       lines.push(`Judged commit: \`${log.headSha.slice(0, 7)}\``, "");
     }
@@ -210,8 +227,18 @@ export function uiReviewDecisionItems(log: LoopLog): {
   defects: string | null;
   notRun: string | null;
 } {
+  const unjudged =
+    log.required === true && !log.skip
+      ? (degradedForOutcome(log)?.unjudgedRoutes ?? [])
+      : [];
   return {
     defects: residualDecisionItem(log.skip ? [] : log.residual, log.persistent),
-    notRun: notRun(log) ? notRunDecisionItem(plainReason(log.skip!)) : null,
+    notRun: notRun(log)
+      ? notRunDecisionItem(plainReason(log.skip!))
+      : unjudged.length > 0
+        ? notRunDecisionItem(
+            `every screenshot of ${unjudged.join(", ")} was rate-limited, so those pages were not judged; re-run verify once the app is idle`,
+          )
+        : null,
   };
 }

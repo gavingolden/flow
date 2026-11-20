@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   acceptRound,
   emptyLoopLog,
+  findingKey,
   isGating,
   parseLoopLog,
   persistentDefects,
@@ -385,6 +386,19 @@ describe("acceptRound", () => {
     ).toBe("keep");
   });
 
+  it("names the rate limit when the after-screenshot exists but was throttled", () => {
+    const key = findingKey(targeted[0]);
+    const r = acceptRound({
+      regressed: false,
+      targeted,
+      after: [],
+      afterKeys: new Set(),
+      rateLimitedKeys: new Set([key]),
+    });
+    expect(r.decision).toBe("revert");
+    expect(r.reason).toContain("rate-limited");
+  });
+
   it("reverts a round that targeted nothing worth fixing", () => {
     expect(
       acceptRound({
@@ -448,6 +462,42 @@ describe("parseLoopLog", () => {
     expect(bad.round).toBeNull();
     expect(bad.outcome).toBeNull();
     expect(bad.persistent).toEqual(["y"]);
+  });
+});
+
+describe("parseLoopLog captureDegraded", () => {
+  const summary = { shots: 2, of: 6, unjudgedRoutes: ["/a"] };
+
+  it("round-trips valid per-phase summaries", () => {
+    const captureDegraded = { "round-0": summary, "post-round": summary };
+    expect(
+      parseLoopLog(JSON.stringify({ captureDegraded })).captureDegraded,
+    ).toEqual(captureDegraded);
+  });
+
+  it("drops a malformed phase and keeps a valid one", () => {
+    const log = parseLoopLog(
+      JSON.stringify({
+        captureDegraded: {
+          "round-0": { shots: -1, of: 3, unjudgedRoutes: [] },
+          "post-round": summary,
+        },
+      }),
+    );
+    expect(log.captureDegraded).toEqual({ "post-round": summary });
+  });
+
+  it("drops the field when no phase survives", () => {
+    for (const captureDegraded of [
+      "x",
+      {},
+      { "round-0": { shots: 1.5, of: 2, unjudgedRoutes: [] } },
+      { "round-0": { shots: 1, of: 2, unjudgedRoutes: [3] } },
+    ]) {
+      expect(
+        "captureDegraded" in parseLoopLog(JSON.stringify({ captureDegraded })),
+      ).toBe(false);
+    }
   });
 });
 

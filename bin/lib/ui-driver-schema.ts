@@ -91,6 +91,10 @@ export const SECTION_VIEWPORTS = [
 ] as const;
 export const SECTION_PARTS = ["whole", "start", "end"] as const;
 
+// status 0 = network failure; url = host + path (no query), count = the most
+// times one full URL under that host + path was requested in the page load.
+export type FailedRequest = { url: string; status: number; count: number };
+
 // One screenshot of one page section, captured by the driver for the
 // critique loop. Capture only: the driver never judges what it photographs.
 export type SectionShot = {
@@ -99,6 +103,7 @@ export type SectionShot = {
   viewport: (typeof SECTION_VIEWPORTS)[number];
   part: (typeof SECTION_PARTS)[number];
   path: string;
+  failedRequests?: FailedRequest[];
 };
 
 export type RouteSnapshot = { route: string; path: string };
@@ -131,14 +136,14 @@ export type ValidationErr = { ok: false; errors: string[] };
 export type ValidationResult = ValidationOk | ValidationErr;
 
 const FIX_CONTEXT_MAX_ENTRIES = 10;
-const FIX_CONTEXT_STRING_MAX_CHARS = 300;
+export const FIX_CONTEXT_STRING_MAX_CHARS = 300;
 // Caps the LENGTH of each inner array independently of the 10-entry outer
 // cap and the 300-char per-string cap — without this, a single entry's
 // `consoleErrors`/`failedRequests`/`missingSelectors` array could carry an
 // unbounded number of 299-char strings (e.g. 5,000 entries ~= 1.5MB) and
 // re-introduce exactly the artifact bloat the 10-entry cap was meant to
 // foreclose.
-const FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS = 20;
+export const FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS = 20;
 
 function isString(v: unknown): v is string {
   return typeof v === "string";
@@ -240,6 +245,47 @@ function validateSectionShot(entry: unknown, path: string): string[] {
   ) {
     errors.push(`'${path}.part' must be one of ${SECTION_PARTS.join(", ")}`);
   }
+  if (o.failedRequests !== undefined) {
+    errors.push(
+      ...validateFailedRequests(o.failedRequests, `${path}.failedRequests`),
+    );
+  }
+  return errors;
+}
+
+function validateFailedRequests(raw: unknown, label: string): string[] {
+  if (!Array.isArray(raw)) return [`'${label}' must be an array when present`];
+  const errors: string[] = [];
+  if (raw.length > FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS) {
+    errors.push(
+      `'${label}' exceeds the ${FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS}-item cap`,
+    );
+  }
+  raw.forEach((e, i) => {
+    const at = `${label}[${i}]`;
+    if (typeof e !== "object" || e === null) {
+      errors.push(`'${at}' must be an object`);
+      return;
+    }
+    const f = e as Record<string, unknown>;
+    if (!isString(f.url)) {
+      errors.push(`'${at}.url' must be a string`);
+    } else if (f.url.length > FIX_CONTEXT_STRING_MAX_CHARS) {
+      errors.push(
+        `'${at}.url' exceeds the ${FIX_CONTEXT_STRING_MAX_CHARS}-char cap`,
+      );
+    }
+    if (
+      !Number.isInteger(f.status) ||
+      (f.status as number) < 0 ||
+      (f.status as number) > 599
+    ) {
+      errors.push(`'${at}.status' must be an integer from 0 to 599`);
+    }
+    if (!Number.isInteger(f.count) || (f.count as number) < 1) {
+      errors.push(`'${at}.count' must be a positive integer`);
+    }
+  });
   return errors;
 }
 

@@ -17,6 +17,7 @@ import {
   type LoopLog,
   type RoundKind,
 } from "./ui-critique";
+import { isDegradedShot, usableShots } from "./ui-capture-health";
 import type { PlaywrightStatus } from "./playwright-resolve";
 import {
   appendLedger,
@@ -314,8 +315,11 @@ export function opRender(f: Flags, deps: OpsDeps): OpResult {
   const after = readDriver(deps, path.join(critDir(w), "after-driver.json"));
   const demoted = demotion(deps);
   const section = renderUiReview({
-    before: round0?.section_shots ?? [],
-    after: log.outcome === "kept" ? (after?.section_shots ?? null) : null,
+    before: usableShots(round0?.section_shots ?? []),
+    after:
+      log.outcome === "kept" && after?.section_shots
+        ? usableShots(after.section_shots)
+        : null,
     log,
     demotion:
       log.mode === "list-only"
@@ -373,13 +377,19 @@ export function opAccept(f: Flags, deps: OpsDeps): OpResult {
     typeof f["after-driver"] === "string"
       ? readDriver(deps, f["after-driver"])?.section_shots
       : undefined;
-  const afterKeys = shots ? new Set(shots.map(findingKey)) : undefined;
+  const afterKeys = shots
+    ? new Set(usableShots(shots).map(findingKey))
+    : undefined;
+  const rateLimitedKeys = shots
+    ? new Set(shots.filter((s) => isDegradedShot(s)).map(findingKey))
+    : undefined;
   return {
     ...acceptRound({
       regressed: compare.regressed,
       targeted,
       after: after ?? [],
       afterKeys,
+      rateLimitedKeys,
     }),
   };
 }

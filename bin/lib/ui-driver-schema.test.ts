@@ -523,6 +523,41 @@ describe("critique-loop artifact fields", () => {
       withField("section_shots", [shot({ section: "x".repeat(301) })]).ok,
     ).toBe(false);
   });
+
+  describe("failedRequests on a section shot", () => {
+    const req = (over: Record<string, unknown> = {}) => ({
+      url: "api.example.com/cards",
+      status: 429,
+      count: 1,
+      ...over,
+    });
+    const withReqs = (value: unknown) =>
+      withField("section_shots", [shot({ failedRequests: value })]);
+
+    it("accepts well-formed entries, including a network failure", () => {
+      expect(withReqs([req(), req({ status: 0, count: 3 })]).ok).toBe(true);
+      expect(withReqs(Array.from({ length: 20 }, () => req())).ok).toBe(true);
+    });
+
+    it.each([
+      ["a non-array", "nope"],
+      [
+        "21 entries",
+        Array.from({ length: 21 }, () => ({
+          url: "h/p",
+          status: 429,
+          count: 1,
+        })),
+      ],
+      ["a 301-char url", [{ url: "x".repeat(301), status: 429, count: 1 }]],
+      ["status 600", [{ url: "h/p", status: 600, count: 1 }]],
+      ["status 1.5", [{ url: "h/p", status: 1.5, count: 1 }]],
+      ["count 0", [{ url: "h/p", status: 429, count: 0 }]],
+      ["a non-object entry", ["h/p"]],
+    ])("rejects %s", (_name, value) => {
+      expect(withReqs(value).ok).toBe(false);
+    });
+  });
 });
 
 describe("ui-driver-schema fixtures", () => {

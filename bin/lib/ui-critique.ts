@@ -4,6 +4,7 @@
  * whether a fix round is kept, and which page-check defects are persistent.
  * No I/O, no LLM — the `flow-ui-critique` CLI wires these to files.
  */
+import type { DegradedSummary } from "./ui-capture-health";
 import type { UiReviewTarget } from "./ui-review-scope";
 
 export type CritiqueSeverity = "defect" | "major" | "minor";
@@ -139,6 +140,11 @@ export type LoopLog = {
   playwrightWarning?: string;
   /** Advisory judgment of the sign-off screenshots; never gates. */
   signoff?: { findings: CritiqueFinding[]; judgedSha: string };
+  /** Screenshots left out of judging because the app rate-limited them. */
+  captureDegraded?: {
+    "round-0"?: DegradedSummary;
+    "post-round"?: DegradedSummary;
+  };
 };
 
 const OUTCOMES: readonly string[] = [
@@ -161,6 +167,35 @@ export function emptyLoopLog(): LoopLog {
     completed: false,
     critiqueCalls: [],
   };
+}
+
+const isCount = (n: unknown): n is number =>
+  Number.isInteger(n) && (n as number) >= 0;
+
+function parseCaptureDegraded(raw: unknown): LoopLog["captureDegraded"] {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const out: NonNullable<LoopLog["captureDegraded"]> = {};
+  for (const phase of ["round-0", "post-round"] as const) {
+    const d = (raw as Record<string, unknown>)[phase] as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    if (
+      typeof d === "object" &&
+      d !== null &&
+      isCount(d.shots) &&
+      isCount(d.of) &&
+      Array.isArray(d.unjudgedRoutes) &&
+      d.unjudgedRoutes.every((r) => typeof r === "string")
+    ) {
+      out[phase] = {
+        shots: d.shots,
+        of: d.of,
+        unjudgedRoutes: d.unjudgedRoutes as string[],
+      };
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Tolerant read: a missing or malformed log is an empty one. */
@@ -238,6 +273,8 @@ export function parseLoopLog(raw: string | null): LoopLog {
       judgedSha: so.judgedSha,
     };
   }
+  const cd = parseCaptureDegraded(o.captureDegraded);
+  if (cd) out.captureDegraded = cd;
   if (Array.isArray(o.targets)) {
     out.targets = o.targets.filter(
       (t): t is UiReviewTarget =>
@@ -279,6 +316,8 @@ export function acceptRound(i: {
   after: CritiqueFinding[];
   /** `route | section | viewport` keys present in the post-round gallery. */
   afterKeys?: Set<string>;
+  /** Keys whose post-round screenshot exists but was rate-limited by the app. */
+  rateLimitedKeys?: Set<string>;
 }): { decision: "keep" | "revert"; reason: string } {
   const revert = (reason: string) => ({ decision: "revert" as const, reason });
   if (i.regressed) {
@@ -294,6 +333,11 @@ export function acceptRound(i: {
   }
   for (const [key, rank] of targetedKeys) {
     if (i.afterKeys && !i.afterKeys.has(key)) {
+      if (i.rateLimitedKeys?.has(key)) {
+        return revert(
+          `the post-round screenshot of ${key} was rate-limited by the app, so the fix could not be re-checked`,
+        );
+      }
       return revert(`${key} was not in the post-round screenshots`);
     }
     if ((after.get(key) ?? 0) >= rank) {
