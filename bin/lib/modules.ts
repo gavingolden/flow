@@ -90,6 +90,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-backlog-triage",
       "flow-file-issue",
       "flow-deliberate",
+      "flow-label-probe",
       "flow-fix-applier-instructions",
       "flow-coder-instructions",
       "flow-merge-resolver-instructions",
