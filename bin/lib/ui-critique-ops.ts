@@ -17,7 +17,7 @@ import {
   type LoopLog,
   type RoundKind,
 } from "./ui-critique";
-import { usableShots } from "./ui-capture-health";
+import { isDegradedShot, usableShots } from "./ui-capture-health";
 import type { PlaywrightStatus } from "./playwright-resolve";
 import {
   appendLedger,
@@ -380,12 +380,16 @@ export function opAccept(f: Flags, deps: OpsDeps): OpResult {
   const afterKeys = shots
     ? new Set(usableShots(shots).map(findingKey))
     : undefined;
+  const rateLimitedKeys = shots
+    ? new Set(shots.filter((s) => isDegradedShot(s)).map(findingKey))
+    : undefined;
   return {
     ...acceptRound({
       regressed: compare.regressed,
       targeted,
       after: after ?? [],
       afterKeys,
+      rateLimitedKeys,
     }),
   };
 }

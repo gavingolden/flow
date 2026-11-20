@@ -134,10 +134,11 @@ export function critique(f: Flags, deps: Deps): OpResult {
   const routes = (
     findings as { routes?: { heuristicSmells?: string[] }[] } | null
   )?.routes;
+  const degradedRoutes = degradedRoutesForSnapshots(all);
   const prompt = buildCritiquePrompt({
     shots: gallery.shots,
     snapshots: (driver?.route_snapshots ?? []).filter(
-      (r) => !degradedRoutesForSnapshots(all).has(r.route),
+      (r) => !degradedRoutes.has(r.route),
     ),
     layoutIntent: extractLayoutIntent(deps.readFile(String(f.plan)) ?? ""),
     ruleDocPaths,

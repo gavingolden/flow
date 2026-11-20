@@ -4,11 +4,12 @@
  * other viewports. A returned string (like `heuristicsProbeScript`) because
  * the script runs under the target repo's Node, not flow's Bun. It is embedded
  * in a String.raw template, so the JS must never contain a backtick or "${".
+ * `CAPS` is the failure-cap object the script builds the fragment with.
  */
 export function captureNetworkScript(): string {
   return String.raw`
-var MAX_FAILURES = 20;
-var MAX_URL = 300;
+var MAX_FAILURES = CAPS.items;
+var MAX_URL = CAPS.urlChars;
 var TRACKED = { document: 1, fetch: 1, xhr: 1 };
 var DROPPED_HEADERS = ["content-encoding", "content-length", "transfer-encoding"];
 
@@ -42,7 +43,7 @@ function track(page) {
   var fails = new Map();
   var seq = 0;
   function hit(req) {
-    var key = req.method() + " " + req.url();
+    var key = req.method() + " " + req.url() + " " + (req.postData() || "");
     var h = hits.get(key) || { hp: hostPath(req.url()), n: 0 };
     h.n++;
     hits.set(key, h);
@@ -74,7 +75,11 @@ function track(page) {
         hits.forEach(function (h) {
           if (h.hp === hp) cur.count = Math.max(cur.count, h.n);
         });
-        if (f.seq > cur.seq) { cur.seq = f.seq; cur.status = f.status; }
+        var newer = f.seq > cur.seq;
+        if (f.status === 429 ? (cur.status !== 429 || newer) : (cur.status !== 429 && newer)) {
+          cur.seq = f.seq;
+          cur.status = f.status;
+        }
         byPath.set(hp, cur);
       });
       return capFailures(Array.from(byPath.values()));
@@ -113,7 +118,16 @@ function recordResponses(page, baseHost) {
       ),
     );
   });
-  return { map: map, settled: function () { return Promise.all(pending); } };
+  return {
+    map: map,
+    // A body that has not finished within ms (a streaming or long-poll
+    // response) is left out of the reuse map rather than awaited.
+    settled: function (ms) {
+      var timer;
+      var cap = new Promise(function (resolve) { timer = setTimeout(resolve, ms); });
+      return Promise.race([Promise.all(pending), cap]).then(function () { clearTimeout(timer); });
+    },
+  };
 }
 
 async function replayResponses(ctx, map) {

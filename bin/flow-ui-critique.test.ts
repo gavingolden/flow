@@ -1145,7 +1145,7 @@ describe("critique on a rate-limited capture", () => {
     );
 
     expect(result(h)).toMatchObject({ decision: "revert" });
-    expect(result(h).reason).toContain("not in the post-round screenshots");
+    expect(result(h).reason).toContain("was rate-limited by the app");
   });
 });
 
@@ -1242,6 +1242,34 @@ describe("loop state coherence", () => {
     const revertedBody = reverted.files.get("/b.md")!;
     expect(revertedBody).not.toContain("After");
     expect(revertedBody).not.toContain("ui-evidence/critique/a.png");
+  });
+
+  it("leaves rate-limited screenshots out of both sides of the table", () => {
+    const limitedShot = (p: string) => ({
+      ...shotAt(p),
+      failedRequests: [{ url: "app.test/api/x", status: 429, count: 1 }],
+    });
+    const h = harness({
+      "/b.md": BODY,
+      [`${critDir}/log.json`]: { outcome: "kept" },
+      [`${critDir}/round-0-driver.json`]: {
+        section_shots: [
+          shotAt(`${W}/.flow-tmp/ui-evidence/critique-round-0/ok.png`),
+          limitedShot(`${W}/.flow-tmp/ui-evidence/critique-round-0/bad.png`),
+        ],
+      },
+      [`${critDir}/after-driver.json`]: {
+        section_shots: [
+          shotAt(`${W}/.flow-tmp/ui-evidence/critique/ok.png`),
+          limitedShot(`${W}/.flow-tmp/ui-evidence/critique/bad.png`),
+        ],
+      },
+    });
+    render(h);
+    const body = h.files.get("/b.md")!;
+    expect(body).toContain("critique-round-0/ok.png");
+    expect(body).toContain("critique/ok.png");
+    expect(body).not.toContain("bad.png");
   });
 
   it("keeps a ticked DECISION ticked while its text is unchanged and re-arms it when the defects change", () => {

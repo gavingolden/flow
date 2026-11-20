@@ -316,6 +316,8 @@ export function acceptRound(i: {
   after: CritiqueFinding[];
   /** `route | section | viewport` keys present in the post-round gallery. */
   afterKeys?: Set<string>;
+  /** Keys whose post-round screenshot exists but was rate-limited by the app. */
+  rateLimitedKeys?: Set<string>;
 }): { decision: "keep" | "revert"; reason: string } {
   const revert = (reason: string) => ({ decision: "revert" as const, reason });
   if (i.regressed) {
@@ -331,6 +333,11 @@ export function acceptRound(i: {
   }
   for (const [key, rank] of targetedKeys) {
     if (i.afterKeys && !i.afterKeys.has(key)) {
+      if (i.rateLimitedKeys?.has(key)) {
+        return revert(
+          `the post-round screenshot of ${key} was rate-limited by the app, so the fix could not be re-checked`,
+        );
+      }
       return revert(`${key} was not in the post-round screenshots`);
     }
     if ((after.get(key) ?? 0) >= rank) {

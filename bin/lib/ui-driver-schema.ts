@@ -136,14 +136,14 @@ export type ValidationErr = { ok: false; errors: string[] };
 export type ValidationResult = ValidationOk | ValidationErr;
 
 const FIX_CONTEXT_MAX_ENTRIES = 10;
-const FIX_CONTEXT_STRING_MAX_CHARS = 300;
+export const FIX_CONTEXT_STRING_MAX_CHARS = 300;
 // Caps the LENGTH of each inner array independently of the 10-entry outer
 // cap and the 300-char per-string cap — without this, a single entry's
 // `consoleErrors`/`failedRequests`/`missingSelectors` array could carry an
 // unbounded number of 299-char strings (e.g. 5,000 entries ~= 1.5MB) and
 // re-introduce exactly the artifact bloat the 10-entry cap was meant to
 // foreclose.
-const FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS = 20;
+export const FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS = 20;
 
 function isString(v: unknown): v is string {
   return typeof v === "string";

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   acceptRound,
   emptyLoopLog,
+  findingKey,
   isGating,
   parseLoopLog,
   persistentDefects,
@@ -383,6 +384,19 @@ describe("acceptRound", () => {
         after: [finding({ section: "Footer", severity: "minor" })],
       }).decision,
     ).toBe("keep");
+  });
+
+  it("names the rate limit when the after-screenshot exists but was throttled", () => {
+    const key = findingKey(targeted[0]);
+    const r = acceptRound({
+      regressed: false,
+      targeted,
+      after: [],
+      afterKeys: new Set(),
+      rateLimitedKeys: new Set([key]),
+    });
+    expect(r.decision).toBe("revert");
+    expect(r.reason).toContain("rate-limited");
   });
 
   it("reverts a round that targeted nothing worth fixing", () => {

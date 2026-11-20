@@ -21,8 +21,12 @@ export type CaptureConfig = {
   maxShotsPerTarget: number;
   /** `route|n|viewport|part` -> absolute screenshot path. */
   names: Record<string, string>;
-  /** Wait bounds for a rate-limited page, and the whole run's wait budget. */
+  /** Wait bounds for a rate-limited page, and the budget for all its waits plus reloads. */
   backoff: { minMs: number; maxMs: number; budgetMs: number };
+  /** Longest wait for a recorded API response body to finish before it is not reused. */
+  bodySettleMs: number;
+  /** Caps on `failedRequests`, matching the driver-result schema. */
+  failureCaps: { items: number; urlChars: number };
   /** A failing response with one of these statuses earns one reload. */
   reloadStatuses: number[];
 };
@@ -58,8 +62,8 @@ const USER = process.env.FLOW_CAPTURE_USER || "";
 const PASS = process.env.FLOW_CAPTURE_PASS || "";
 const PROBE = "(" + PROBE_SRC + ")()";
 const SECTIONS = "(" + SECTIONS_SRC + ")()";
-const NET = new Function(NETWORK_SRC + "; return { track, retryAfterMs, recordResponses, replayResponses };")();
-const DEADLINE = Date.now() + cfg.backoff.budgetMs;
+const NET = new Function("CAPS", NETWORK_SRC + "; return { track, retryAfterMs, recordResponses, replayResponses };")(cfg.failureCaps);
+let spent = 0;
 const out = { shots: [], snapshots: [], omittedSections: 0 };
 
 const redact = (s) => {
@@ -101,7 +105,9 @@ async function login(browser) {
 }
 
 // Other viewports are served the desktop load's API responses (reuse) so one
-// target costs the app one set of calls; a 429/503 earns one wait-and-reload.
+// target costs the app one set of calls. Only the desktop load (reuse is null)
+// earns a wait-and-reload on a 429/503, so a persisting one costs one reload
+// per target; the other viewports are marked from what they see, not retried.
 async function open(browser, storageState, vp, scheme, url, reuse, recordHost) {
   const ctx = await browser.newContext({
     serviceWorkers: "block",
@@ -120,12 +126,14 @@ async function open(browser, storageState, vp, scheme, url, reuse, recordHost) {
   await page.goto(url, { waitUntil: "load" });
   await settle(page);
   const limited = tracker.sawStatus(cfg.reloadStatuses);
-  if (limited && Date.now() < DEADLINE) {
-    const wait = Math.min(NET.retryAfterMs(limited.retryAfter, cfg.backoff.minMs, cfg.backoff.maxMs), DEADLINE - Date.now());
+  if (!reuse && limited && spent < cfg.backoff.budgetMs) {
+    const began = Date.now();
+    const wait = Math.min(NET.retryAfterMs(limited.retryAfter, cfg.backoff.minMs, cfg.backoff.maxMs), cfg.backoff.budgetMs - spent);
     await page.waitForTimeout(wait);
     tracker.reset();
     await page.reload({ waitUntil: "load" });
     await settle(page);
+    spent += Math.max(wait, Date.now() - began);
   }
   return { ctx, page, tracker, rec };
 }
@@ -144,7 +152,7 @@ async function captureTarget(browser, storageState, t) {
     // ariaSnapshot needs a recent Playwright; the screenshots still go ahead.
   }
 
-  await first.rec.settled();
+  await first.rec.settled(cfg.bodySettleMs);
 
   let budget = cfg.maxShotsPerTarget;
   const vps = probe.hasDarkScheme ? cfg.viewportsDark : cfg.viewportsLight;

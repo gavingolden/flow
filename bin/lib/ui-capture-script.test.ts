@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildCaptureConfig } from "./ui-capture-config";
+import { isDegradedShot } from "./ui-capture-health";
 import { buildCaptureScript } from "./ui-capture-script";
 import type { Target } from "./ui-capture-args";
 
@@ -62,7 +63,7 @@ exports.chromium = {
             request: () => req,
             status: () => status,
             headers: () => headers,
-            body: async () => Buffer.from("{}"),
+            body: () => (ev.hang ? new Promise(() => {}) : Promise.resolve(Buffer.from("{}"))),
           });
         }
       };
@@ -120,6 +121,7 @@ type Traffic = Record<string, Record<string, unknown>[][]>;
 type RunOpts = {
   traffic?: Traffic;
   backoff?: { minMs: number; maxMs: number; budgetMs: number };
+  bodySettleMs?: number;
 };
 
 function runScript(targets: Target[], withLogin: boolean, opts: RunOpts = {}) {
@@ -136,6 +138,7 @@ function runScript(targets: Target[], withLogin: boolean, opts: RunOpts = {}) {
         targets,
       }),
       ...(opts.backoff ? { backoff: opts.backoff } : {}),
+      ...(opts.bodySettleMs ? { bodySettleMs: opts.bodySettleMs } : {}),
     }),
   );
   const trafficPath = path.join(dir, "traffic.json");
@@ -282,16 +285,102 @@ describe("generated capture script network handling", () => {
     ).toBe(true);
   });
 
-  it("reloads once after a 429 and records nothing when the reload succeeds", () => {
+  it.each([429, 503])(
+    "reloads once after a %i and records nothing when the reload succeeds",
+    (status) => {
+      const { out, events } = runScript([t("/a")], false, {
+        backoff: FAST,
+        traffic: { "/a": [[{ ...limited(), status }], [ok()]] },
+      });
+
+      expect(out.ok).toBe(true);
+      expect(ofType(events, "reload")).toHaveLength(1);
+      expect(out.shots.length).toBeGreaterThan(0);
+      expect(out.shots.every((s: object) => !("failedRequests" in s))).toBe(
+        true,
+      );
+    },
+  );
+
+  it("waits and reloads once per target when a 429 persists, not once per viewport", () => {
     const { out, events } = runScript([t("/a")], false, {
       backoff: FAST,
-      traffic: { "/a": [[limited()], [ok()]] },
+      traffic: { "/a": [[limited()], [limited()], [limited()], [limited()]] },
+    });
+
+    expect(ofType(events, "reload")).toHaveLength(1);
+    expect(ofType(events, "wait")).toHaveLength(1);
+    expect(shotsOf(out, "/a").length).toBeGreaterThan(1);
+  });
+
+  it("keeps a 429 when a POST with a different body to the same URL succeeds", () => {
+    const post = (body: string, status: number) => ({
+      kind: "response",
+      url: `${BASE}/graphql`,
+      method: "POST",
+      postData: body,
+      status,
+    });
+    const { out } = runScript([t("/a")], false, {
+      backoff: { minMs: 1, maxMs: 5, budgetMs: 0 },
+      traffic: { "/a": [[post("a", 429), post("b", 200)]] },
+    });
+
+    expect(shotsOf(out, "/a")[0].failedRequests).toEqual([
+      { url: "app.test/graphql", status: 429, count: 1 },
+    ]);
+  });
+
+  it("counts repeated requests to one URL and keeps a 429 within the failure cap", () => {
+    const storm = Array.from({ length: 5 }, () => limited());
+    const boom = Array.from({ length: 25 }, (_, i) => ({
+      kind: "response",
+      url: `${BASE}/api/e${i}`,
+      status: 500,
+    }));
+    const { out } = runScript([t("/a"), t("/b")], false, {
+      backoff: { minMs: 1, maxMs: 5, budgetMs: 0 },
+      traffic: {
+        "/a": [storm],
+        "/b": [[...boom, limited({}, `${BASE}/api/limited`)]],
+      },
+    });
+
+    const stormFail = out.shots.find(
+      (s: { route: string }) => s.route === "/a",
+    ).failedRequests;
+    expect(stormFail).toEqual([
+      { url: "app.test/api/cards", status: 429, count: 5 },
+    ]);
+    expect(isDegradedShot({ failedRequests: stormFail })).toBe(false);
+    const capped = shotsOf(out, "/b")[0].failedRequests;
+    expect(capped).toHaveLength(20);
+    expect(capped?.some((f: { status: number }) => f.status === 429)).toBe(
+      true,
+    );
+  });
+
+  it("does not wait on a response body that never finishes", () => {
+    const { out, events } = runScript([t("/a")], false, {
+      backoff: FAST,
+      bodySettleMs: 50,
+      traffic: { "/a": [[ok(API, { hang: true })]] },
     });
 
     expect(out.ok).toBe(true);
-    expect(ofType(events, "reload")).toHaveLength(1);
     expect(out.shots.length).toBeGreaterThan(0);
-    expect(out.shots.every((s: object) => !("failedRequests" in s))).toBe(true);
+    const net = ofType(events, "net").filter((e) => e.url === API);
+    expect(net.every((e) => e.served === "network")).toBe(true);
+  });
+
+  it("spends the wait budget across targets and stops reloading once it is used", () => {
+    const { out, events } = runScript([t("/a"), t("/b")], false, {
+      backoff: { minMs: 2, maxMs: 2, budgetMs: 2 },
+      traffic: { "/a": [[limited()], [ok()]], "/b": [[limited()], [ok()]] },
+    });
+
+    expect(ofType(events, "reload")).toHaveLength(1);
+    expect(shotsOf(out, "/b")[0].failedRequests?.[0].status).toBe(429);
   });
 
   it("honours Retry-After seconds within the floor and cap", () => {
