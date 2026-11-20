@@ -5,6 +5,11 @@
  */
 import * as path from "node:path";
 
+import {
+  degradedRoutesForSnapshots,
+  summarizeDegraded,
+  usableShots,
+} from "./ui-capture-health";
 import { selectGallery } from "./ui-critique-gallery";
 import { validateFindings } from "./ui-critique";
 import {
@@ -78,10 +83,22 @@ export function critique(f: Flags, deps: Deps): OpResult {
     item_results?: UiDriverItemResult[];
     fix_context?: { item?: string; route: string }[];
   } | null;
+  // A screenshot taken while the app was rate-limiting shows an error state,
+  // so it never reaches the judge (nor does the route's snapshot).
+  const all = signoff ? [] : (driver?.section_shots ?? []);
+  const usable = usableShots(all);
+  const degraded = summarizeDegraded(all);
+  if (all.length > 0 && usable.length === 0) {
+    writeLog(deps, w, {
+      ...prior,
+      captureDegraded: { ...prior.captureDegraded, [phase]: degraded },
+    });
+    return { ran: false, skipReason: "capture-degraded" };
+  }
   const gallery = selectGallery(
     signoff
       ? itemCapturesToShots(driver?.item_results ?? [], driver?.fix_context)
-      : (driver?.section_shots ?? []),
+      : usable,
   );
   if (gallery.shots.length === 0) {
     return {
@@ -119,7 +136,9 @@ export function critique(f: Flags, deps: Deps): OpResult {
   )?.routes;
   const prompt = buildCritiquePrompt({
     shots: gallery.shots,
-    snapshots: driver?.route_snapshots ?? [],
+    snapshots: (driver?.route_snapshots ?? []).filter(
+      (r) => !degradedRoutesForSnapshots(all).has(r.route),
+    ),
     layoutIntent: extractLayoutIntent(deps.readFile(String(f.plan)) ?? ""),
     ruleDocPaths,
     smells: (routes ?? []).flatMap((r) => r.heuristicSmells ?? []).slice(0, 40),
@@ -134,6 +153,9 @@ export function critique(f: Flags, deps: Deps): OpResult {
   writeLog(deps, w, {
     ...prior,
     critiqueCalls: [...prior.critiqueCalls, phase],
+    ...(degraded.shots > 0
+      ? { captureDegraded: { ...prior.captureDegraded, [phase]: degraded } }
+      : {}),
     // The first critique judges the HEAD verify reached; a kept round
     // re-stamps it. Stamping at the pre-drive gate would mark verify's own
     // later fix commits as "UI changed after the review".

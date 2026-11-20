@@ -6,8 +6,10 @@
  * environment (`FLOW_CAPTURE_USER` / `FLOW_CAPTURE_PASS`); it never prints
  * them and never screenshots the login page.
  */
+import { captureNetworkScript } from "./ui-capture-network";
 import { heuristicsProbeScript, sectionsScript } from "./ui-heuristics";
 import type { CaptureViewport } from "./ui-capture-plan";
+import type { FailedRequest } from "./ui-driver-schema";
 
 export type CaptureConfig = {
   baseUrl: string;
@@ -19,6 +21,10 @@ export type CaptureConfig = {
   maxShotsPerTarget: number;
   /** `route|n|viewport|part` -> absolute screenshot path. */
   names: Record<string, string>;
+  /** Wait bounds for a rate-limited page, and the whole run's wait budget. */
+  backoff: { minMs: number; maxMs: number; budgetMs: number };
+  /** A failing response with one of these statuses earns one reload. */
+  reloadStatuses: number[];
 };
 
 export type CaptureOutput =
@@ -30,6 +36,7 @@ export type CaptureOutput =
         viewport: CaptureViewport["name"];
         part: "whole" | "start" | "end";
         path: string;
+        failedRequests?: FailedRequest[];
       }[];
       snapshots: { route: string; path: string }[];
       omittedSections: number;
@@ -51,6 +58,8 @@ const USER = process.env.FLOW_CAPTURE_USER || "";
 const PASS = process.env.FLOW_CAPTURE_PASS || "";
 const PROBE = "(" + PROBE_SRC + ")()";
 const SECTIONS = "(" + SECTIONS_SRC + ")()";
+const NET = new Function(NETWORK_SRC + "; return { track, retryAfterMs, recordResponses, replayResponses };")();
+const DEADLINE = Date.now() + cfg.backoff.budgetMs;
 const out = { shots: [], snapshots: [], omittedSections: 0 };
 
 const redact = (s) => {
@@ -91,8 +100,11 @@ async function login(browser) {
   return state;
 }
 
-async function open(browser, storageState, vp, scheme, url) {
+// Other viewports are served the desktop load's API responses (reuse) so one
+// target costs the app one set of calls; a 429/503 earns one wait-and-reload.
+async function open(browser, storageState, vp, scheme, url, reuse, recordHost) {
   const ctx = await browser.newContext({
+    serviceWorkers: "block",
     viewport: { width: vp.width, height: vp.height },
     isMobile: vp.mobile,
     hasTouch: vp.mobile,
@@ -100,17 +112,28 @@ async function open(browser, storageState, vp, scheme, url) {
     colorScheme: scheme,
     ...(storageState ? { storageState } : {}),
   });
+  if (reuse) await NET.replayResponses(ctx, reuse);
   const page = await ctx.newPage();
   page.setDefaultTimeout(15000);
+  const tracker = NET.track(page);
+  const rec = recordHost ? NET.recordResponses(page, recordHost) : null;
   await page.goto(url, { waitUntil: "load" });
   await settle(page);
-  return { ctx, page };
+  const limited = tracker.sawStatus(cfg.reloadStatuses);
+  if (limited && Date.now() < DEADLINE) {
+    const wait = Math.min(NET.retryAfterMs(limited.retryAfter, cfg.backoff.minMs, cfg.backoff.maxMs), DEADLINE - Date.now());
+    await page.waitForTimeout(wait);
+    tracker.reset();
+    await page.reload({ waitUntil: "load" });
+    await settle(page);
+  }
+  return { ctx, page, tracker, rec };
 }
 
 async function captureTarget(browser, storageState, t) {
   const url = new URL(t.route, cfg.baseUrl).href;
   const desktop = cfg.viewportsDark.find((v) => v.name === "desktop");
-  const first = await open(browser, storageState, desktop, "light", url);
+  const first = await open(browser, storageState, desktop, "light", url, null, new URL(cfg.baseUrl).host);
   const probe = await first.page.evaluate(PROBE);
   try {
     const snap = await first.page.locator("body").ariaSnapshot();
@@ -121,6 +144,8 @@ async function captureTarget(browser, storageState, t) {
     // ariaSnapshot needs a recent Playwright; the screenshots still go ahead.
   }
 
+  await first.rec.settled();
+
   let budget = cfg.maxShotsPerTarget;
   const vps = probe.hasDarkScheme ? cfg.viewportsDark : cfg.viewportsLight;
   for (let v = 0; v < vps.length; v++) {
@@ -128,9 +153,9 @@ async function captureTarget(browser, storageState, t) {
     // Each viewport gets an even share of what is left, so a long page cannot
     // starve the later (dark/desktop) viewports.
     let share = Math.floor(budget / (vps.length - v));
-    const { ctx, page } = vp.name === "desktop"
+    const { ctx, page, tracker } = vp.name === "desktop"
       ? first
-      : await open(browser, storageState, vp, vp.colorScheme, url);
+      : await open(browser, storageState, vp, vp.colorScheme, url, first.rec.map);
     if (vp.colorScheme === "dark" && probe.darkSchemeClass) {
       await page.evaluate(applyDark, probe.darkSchemeClass);
     }
@@ -150,7 +175,8 @@ async function captureTarget(browser, storageState, t) {
         await page.screenshot({ path: file, fullPage: false });
         budget--;
         share--;
-        out.shots.push({ route: t.route, section: s.section, viewport: vp.name, part, path: file });
+        const failedRequests = tracker.failures();
+        out.shots.push({ route: t.route, section: s.section, viewport: vp.name, part, path: file, ...(failedRequests.length ? { failedRequests } : {}) });
       }
     }
     await ctx.close();
@@ -187,6 +213,7 @@ export function buildCaptureScript(modulePath: string): string {
     `const { chromium } = require(${JSON.stringify(modulePath)});`,
     `const PROBE_SRC = ${JSON.stringify(heuristicsProbeScript())};`,
     `const SECTIONS_SRC = ${JSON.stringify(sectionsScript())};`,
+    `const NETWORK_SRC = ${JSON.stringify(captureNetworkScript())};`,
     BODY,
   ].join("\n");
 }

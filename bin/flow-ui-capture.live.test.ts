@@ -24,6 +24,36 @@ section{height:900px;padding:24px}
 <section id="details"><h2>Details</h2><p>Second section.</p></section>
 </main></body></html>`;
 
+// `/rl-once` and `/rl-always` call `/api/once` and `/api/always`: the first
+// answers 429 once then 200, the second always 429. `/__hits` reports how
+// often each API path was hit.
+const PAGE_API = PAGE.replace(
+  "</body>",
+  '<script>fetch(location.pathname.replace("/rl-","/api/")).then((r)=>r.text())</script></body>',
+);
+const SERVER = `
+const hits = {};
+const page = ${JSON.stringify(PAGE)};
+const pageApi = ${JSON.stringify(PAGE_API)};
+const s = require("http").createServer((q, r) => {
+  const p = new URL(q.url, "http://x").pathname;
+  if (p === "/__hits") return r.end(JSON.stringify(hits));
+  if (p.startsWith("/api/")) {
+    const n = (hits[p] = (hits[p] || 0) + 1);
+    if (p === "/api/always" || (p === "/api/once" && n === 1)) {
+      r.statusCode = 429;
+      r.setHeader("retry-after", "1");
+      return r.end("slow down");
+    }
+    r.setHeader("content-type", "application/json");
+    return r.end("{}");
+  }
+  r.setHeader("content-type", "text/html");
+  r.end(p === "/" ? page : pageApi);
+});
+s.listen(0, () => console.log(s.address().port));
+`;
+
 describe.skipIf(!PW_DIR)("flow-ui-capture against a real Playwright", () => {
   let worktree = "";
   // A separate process: run() blocks this one on spawnSync, which would starve
@@ -45,14 +75,9 @@ describe.skipIf(!PW_DIR)("flow-ui-capture against a real Playwright", () => {
       path.join(PW_DIR as string, "node_modules"),
       path.join(worktree, "node_modules"),
     );
-    server = spawn(
-      "node",
-      [
-        "-e",
-        `const s=require("http").createServer((q,r)=>{r.setHeader("content-type","text/html");r.end(${JSON.stringify(PAGE)})});s.listen(0,()=>console.log(s.address().port))`,
-      ],
-      { stdio: ["ignore", "pipe", "ignore"] },
-    );
+    server = spawn("node", ["-e", SERVER], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
     port = await new Promise<number>((resolve) =>
       server?.stdout?.once("data", (d) => resolve(Number(String(d).trim()))),
     );
@@ -102,4 +127,50 @@ describe.skipIf(!PW_DIR)("flow-ui-capture against a real Playwright", () => {
     expect(viewports.has("desktop-dark")).toBe(true);
     expect(artifact.route_snapshots.length).toBeGreaterThan(0);
   }, 120_000);
+
+  function capture(route: string) {
+    const targets = path.join(worktree, "targets.json");
+    const out = path.join(worktree, ".flow-tmp", "capture-driver.json");
+    fs.writeFileSync(targets, JSON.stringify([{ route, state: null }]));
+    const lines: string[] = [];
+    const code = run(
+      [
+        "--worktree",
+        worktree,
+        "--targets",
+        targets,
+        "--base-url",
+        `http://localhost:${port}`,
+        "--out",
+        out,
+      ],
+      { ...defaultDeps(), writeOut: (l: string) => void lines.push(l) },
+    );
+    expect(code).toBe(0);
+    const shots: { failedRequests?: { status: number }[] }[] = JSON.parse(
+      fs.readFileSync(out, "utf8"),
+    ).section_shots;
+    return shots;
+  }
+  const hitsOf = async (): Promise<Record<string, number>> =>
+    (await fetch(`http://localhost:${port}/__hits`)).json();
+
+  it("recovers a page whose first API call was rate-limited", async () => {
+    const shots = capture("/rl-once");
+
+    expect(shots.length).toBeGreaterThan(0);
+    expect(shots.every((s) => s.failedRequests === undefined)).toBe(true);
+    expect((await hitsOf())["/api/once"]).toBeLessThanOrEqual(2);
+  }, 170_000);
+
+  it("labels every shot of a page whose API stays rate-limited", async () => {
+    const started = Date.now();
+    const shots = capture("/rl-always");
+
+    expect(Date.now() - started).toBeLessThan(150_000);
+    expect(shots.length).toBeGreaterThan(0);
+    for (const s of shots) {
+      expect(s.failedRequests?.some((f) => f.status === 429)).toBe(true);
+    }
+  }, 170_000);
 });

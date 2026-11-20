@@ -451,6 +451,42 @@ describe("parseLoopLog", () => {
   });
 });
 
+describe("parseLoopLog captureDegraded", () => {
+  const summary = { shots: 2, of: 6, unjudgedRoutes: ["/a"] };
+
+  it("round-trips valid per-phase summaries", () => {
+    const captureDegraded = { "round-0": summary, "post-round": summary };
+    expect(
+      parseLoopLog(JSON.stringify({ captureDegraded })).captureDegraded,
+    ).toEqual(captureDegraded);
+  });
+
+  it("drops a malformed phase and keeps a valid one", () => {
+    const log = parseLoopLog(
+      JSON.stringify({
+        captureDegraded: {
+          "round-0": { shots: -1, of: 3, unjudgedRoutes: [] },
+          "post-round": summary,
+        },
+      }),
+    );
+    expect(log.captureDegraded).toEqual({ "post-round": summary });
+  });
+
+  it("drops the field when no phase survives", () => {
+    for (const captureDegraded of [
+      "x",
+      {},
+      { "round-0": { shots: 1.5, of: 2, unjudgedRoutes: [] } },
+      { "round-0": { shots: 1, of: 2, unjudgedRoutes: [3] } },
+    ]) {
+      expect(
+        "captureDegraded" in parseLoopLog(JSON.stringify({ captureDegraded })),
+      ).toBe(false);
+    }
+  });
+});
+
 describe("selectGallery across targets", () => {
   const shot = (route: string, section: string): SectionShot[] =>
     (["phone", "desktop"] as const).map((viewport) => ({

@@ -30,4 +30,16 @@ describe("buildCaptureConfig", () => {
     expect(rootShots.length).toBeGreaterThan(0);
     expect(otpShots.filter((f) => rootShots.includes(f))).toEqual([]);
   });
+
+  it("carries the back-off bounds and the statuses that earn a reload", () => {
+    const cfg = buildCaptureConfig({
+      worktree: "/wt",
+      baseUrl: "http://localhost:5173",
+      login: null,
+      targets: [{ route: "/", state: "signed-out visitor" }],
+    });
+
+    expect(cfg.backoff).toEqual({ minMs: 5000, maxMs: 15000, budgetMs: 60000 });
+    expect(cfg.reloadStatuses).toEqual([429, 503]);
+  });
 });

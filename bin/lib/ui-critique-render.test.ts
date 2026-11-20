@@ -350,3 +350,83 @@ describe("sign-off screenshots (advisory)", () => {
     ).not.toContain("Sign-off screenshots");
   });
 });
+
+describe("capture-degraded", () => {
+  const degraded = { shots: 2, of: 6, unjudgedRoutes: ["/analysis/ANT"] };
+  const render = (l: LoopLog) =>
+    renderUiReview({ before: [], after: null, log: l, demotion: null });
+
+  it("qualifies a clean outcome with the left-out counts", () => {
+    const out = render(
+      log({ outcome: "clean", captureDegraded: { "round-0": degraded } }),
+    );
+    expect(out).toContain(
+      "Clean on the screenshots that loaded: the critique found no defect or major issue (2 of 6 screenshots left out because the app was rate-limiting the screenshot run).",
+    );
+    expect(out).not.toContain("Clean: the critique");
+  });
+
+  it("adds a NOTE line when the outcome is not clean, using the post-round summary after a kept round", () => {
+    const out = render(
+      log({
+        outcome: "kept",
+        round: { kind: "critique", preSha: "a", open: false },
+        captureDegraded: {
+          "round-0": { shots: 5, of: 6, unjudgedRoutes: [] },
+          "post-round": degraded,
+        },
+      }),
+    );
+    expect(out).toContain("> [!NOTE]");
+    expect(out).toContain(
+      "> 2 of 6 screenshots were left out of the review because the app was rate-limiting the screenshot run.",
+    );
+  });
+
+  it("adds nothing when no screenshot was left out", () => {
+    const out = render(
+      log({
+        outcome: "clean",
+        captureDegraded: { "round-0": { shots: 0, of: 6, unjudgedRoutes: [] } },
+      }),
+    );
+    expect(out).toContain(
+      "Clean: the critique found no defect or major issue.",
+    );
+    expect(out).not.toContain("[!NOTE]");
+  });
+
+  it("raises the not-run DECISION item naming each unjudged route when the review is required", () => {
+    const item = uiReviewDecisionItems(
+      log({
+        outcome: "clean",
+        required: true,
+        captureDegraded: {
+          "round-0": {
+            shots: 4,
+            of: 8,
+            unjudgedRoutes: ["/analysis/ANT", "/b"],
+          },
+        },
+      }),
+    ).notRun;
+    expect(item).toContain("DECISION: the UI review did not run");
+    expect(item).toContain("/analysis/ANT, /b");
+    expect(item).toContain(UI_REVIEW_NOT_RUN_MARKER);
+  });
+
+  it("raises no such item when the review is not required", () => {
+    const l = log({
+      outcome: "clean",
+      required: false,
+      captureDegraded: { "round-0": degraded },
+    });
+    expect(uiReviewDecisionItems(l).notRun).toBeNull();
+  });
+
+  it("renders the plain reason for a capture-degraded skip, never the code", () => {
+    const out = render(log({ skip: "capture-degraded" }));
+    expect(out).toContain("rate-limited the screenshot run");
+    expect(out).not.toContain("capture-degraded");
+  });
+});

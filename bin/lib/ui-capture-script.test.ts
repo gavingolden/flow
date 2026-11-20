@@ -18,16 +18,60 @@ const FAKE_PLAYWRIGHT = String.raw`
 const fs = require("fs");
 const log = (e) => fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify(e) + "\n");
 const MARKER = ${JSON.stringify(MARKER)};
+const RESP = process.env.FAKE_RESPONSES
+  ? JSON.parse(fs.readFileSync(process.env.FAKE_RESPONSES, "utf8"))
+  : {};
 let nextCtx = 0;
 exports.chromium = {
   launch: async () => ({
     newContext: async (opts = {}) => {
       const id = nextCtx++;
       let current = "about:blank";
-      log({ type: "context", id, storageState: opts.storageState || null });
+      let handler = null;
+      let loads = 0;
+      const listeners = {};
+      const emit = (name, arg) => (listeners[name] || []).forEach((fn) => fn(arg));
+      log({
+        type: "context", id, storageState: opts.storageState || null,
+        serviceWorkers: opts.serviceWorkers || null,
+      });
+      // Replays the scripted traffic for this route's n-th load of this page.
+      const load = async (url) => {
+        const evs = (RESP[new URL(url).pathname] || [])[loads++] || [];
+        for (const ev of evs) {
+          const req = {
+            url: () => ev.url,
+            method: () => ev.method || "GET",
+            resourceType: () => ev.type || "fetch",
+            postData: () => ev.postData || null,
+            failure: () => (ev.errorText ? { errorText: ev.errorText } : null),
+          };
+          if (ev.kind === "failed") { emit("requestfailed", req); continue; }
+          let served = null;
+          if (handler) {
+            await handler({
+              request: () => req,
+              fulfill: async (o) => { served = o; },
+              continue: async () => {},
+            });
+          }
+          log({ type: "net", ctx: id, url: ev.url, served: served ? "reuse" : "network" });
+          const status = served ? served.status : ev.status;
+          const headers = served ? served.headers : ev.headers || {};
+          emit("response", {
+            request: () => req,
+            status: () => status,
+            headers: () => headers,
+            body: async () => Buffer.from("{}"),
+          });
+        }
+      };
       const page = {
         setDefaultTimeout() {},
-        goto: async (url) => { current = url; log({ type: "goto", ctx: id, url }); },
+        on(name, fn) { (listeners[name] = listeners[name] || []).push(fn); },
+        goto: async (url) => { current = url; log({ type: "goto", ctx: id, url }); await load(url); },
+        reload: async () => { log({ type: "reload", ctx: id }); await load(current); },
+        waitForTimeout: async (ms) => { log({ type: "wait", ms }); },
         waitForLoadState: async () => {},
         evaluate: async () => ({
           hasDarkScheme: false, darkSchemeClass: null, sections: [], innerHeight: 800,
@@ -42,6 +86,7 @@ exports.chromium = {
       };
       return {
         newPage: async () => page,
+        route: async (pattern, h) => { handler = h; },
         storageState: async () => MARKER,
         close: async () => {},
       };
@@ -60,24 +105,41 @@ afterEach(() => {
 });
 
 type Event =
-  | { type: "context"; id: number; storageState: unknown }
-  | { type: "goto"; ctx: number; url: string };
+  | {
+      type: "context";
+      id: number;
+      storageState: unknown;
+      serviceWorkers: string | null;
+    }
+  | { type: "goto"; ctx: number; url: string }
+  | { type: "reload"; ctx: number }
+  | { type: "wait"; ms: number }
+  | { type: "net"; ctx: number; url: string; served: "reuse" | "network" };
 
-function runScript(targets: Target[], withLogin: boolean) {
+type Traffic = Record<string, Record<string, unknown>[][]>;
+type RunOpts = {
+  traffic?: Traffic;
+  backoff?: { minMs: number; maxMs: number; budgetMs: number };
+};
+
+function runScript(targets: Target[], withLogin: boolean, opts: RunOpts = {}) {
   const fakePath = path.join(dir, "playwright.cjs");
   fs.writeFileSync(fakePath, FAKE_PLAYWRIGHT);
   const cfgPath = path.join(dir, "config.json");
   fs.writeFileSync(
     cfgPath,
-    JSON.stringify(
-      buildCaptureConfig({
+    JSON.stringify({
+      ...buildCaptureConfig({
         worktree: dir,
         baseUrl: BASE,
         login: withLogin ? { url: LOGIN } : null,
         targets,
       }),
-    ),
+      ...(opts.backoff ? { backoff: opts.backoff } : {}),
+    }),
   );
+  const trafficPath = path.join(dir, "traffic.json");
+  fs.writeFileSync(trafficPath, JSON.stringify(opts.traffic ?? {}));
   const scriptPath = path.join(dir, "capture.cjs");
   fs.writeFileSync(scriptPath, buildCaptureScript(fakePath));
   const logPath = path.join(dir, "events.jsonl");
@@ -88,6 +150,7 @@ function runScript(targets: Target[], withLogin: boolean) {
       HOME: process.env.HOME,
       FLOW_CAPTURE_CONFIG: cfgPath,
       FAKE_LOG: logPath,
+      FAKE_RESPONSES: trafficPath,
       ...(withLogin
         ? { FLOW_CAPTURE_USER: "user", FLOW_CAPTURE_PASS: "pass" }
         : {}),
@@ -164,5 +227,196 @@ describe("generated capture script session choice", () => {
     expect(
       events.filter((e) => e.type === "goto" && e.url === LOGIN),
     ).toHaveLength(1);
+  });
+});
+
+const API = `${BASE}/api/cards`;
+const ok = (url = API, extra: Record<string, unknown> = {}) => ({
+  kind: "response",
+  url,
+  status: 200,
+  ...extra,
+});
+const limited = (headers: Record<string, string> = {}, url = API) => ({
+  kind: "response",
+  url,
+  status: 429,
+  headers,
+});
+const FAST = { minMs: 1, maxMs: 5, budgetMs: 600000 };
+const t = (route: string): Target => ({ route, state: null });
+const shotsOf = (
+  out: { shots: { route: string; failedRequests?: { status: number }[] }[] },
+  route: string,
+) => out.shots.filter((s) => s.route === route);
+const ofType = <K extends Event["type"]>(events: Event[], type: K) =>
+  events.filter((e): e is Extract<Event, { type: K }> => e.type === type);
+
+describe("generated capture script network handling", () => {
+  it("reuses the desktop API responses for the other viewports", () => {
+    const other = "http://api.other.test/data";
+    const { out, events } = runScript([t("/a")], false, {
+      backoff: FAST,
+      traffic: {
+        "/a": [
+          [
+            ok(),
+            ok(`${BASE}/api/search`, { method: "POST", postData: '{"q":1}' }),
+            ok(other),
+          ],
+        ],
+      },
+    });
+
+    expect(out.ok).toBe(true);
+    const net = ofType(events, "net");
+    const served = (url: string, how: string) =>
+      net.filter((e) => e.url === url && e.served === how).length;
+    expect(served(API, "network")).toBe(1);
+    expect(served(API, "reuse")).toBeGreaterThan(0);
+    expect(served(`${BASE}/api/search`, "network")).toBe(1);
+    expect(served(`${BASE}/api/search`, "reuse")).toBeGreaterThan(0);
+    expect(served(other, "reuse")).toBe(0);
+    expect(
+      ofType(events, "context").every((c) => c.serviceWorkers === "block"),
+    ).toBe(true);
+  });
+
+  it("reloads once after a 429 and records nothing when the reload succeeds", () => {
+    const { out, events } = runScript([t("/a")], false, {
+      backoff: FAST,
+      traffic: { "/a": [[limited()], [ok()]] },
+    });
+
+    expect(out.ok).toBe(true);
+    expect(ofType(events, "reload")).toHaveLength(1);
+    expect(out.shots.length).toBeGreaterThan(0);
+    expect(out.shots.every((s: object) => !("failedRequests" in s))).toBe(true);
+  });
+
+  it("honours Retry-After seconds within the floor and cap", () => {
+    const traffic: Traffic = {};
+    const routes = ["/a", "/b", "/c", "/d"];
+    const headers = [
+      { "retry-after": "1" },
+      { "retry-after": "0" },
+      { "retry-after": "999" },
+      { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" },
+    ];
+    routes.forEach((r, i) => {
+      traffic[r] = [[limited(headers[i])], [ok()]];
+    });
+
+    const { events } = runScript(routes.map(t), false, {
+      backoff: { minMs: 100, maxMs: 3000, budgetMs: 600000 },
+      traffic,
+    });
+
+    expect(ofType(events, "wait").map((w) => w.ms)).toEqual([
+      1000, 100, 3000, 100,
+    ]);
+  });
+
+  it("records a persisting 429 on every shot of that page", () => {
+    const { out } = runScript([t("/a"), t("/clean")], false, {
+      backoff: FAST,
+      traffic: { "/a": [[limited()], [limited()], [limited()], [limited()]] },
+    });
+
+    const limitedShots = shotsOf(out, "/a");
+    expect(limitedShots.length).toBeGreaterThan(1);
+    for (const s of limitedShots) {
+      expect(s.failedRequests).toEqual([
+        { url: "app.test/api/cards", status: 429, count: 1 },
+      ]);
+    }
+    expect(
+      shotsOf(out, "/clean").every((s: object) => !("failedRequests" in s)),
+    ).toBe(true);
+  });
+
+  it("clears a failure the app's own retry recovered", () => {
+    const { out, events } = runScript([t("/a")], false, {
+      backoff: FAST,
+      traffic: { "/a": [[limited(), ok()]] },
+    });
+
+    expect(ofType(events, "reload")).toHaveLength(0);
+    expect(out.shots.every((s: object) => !("failedRequests" in s))).toBe(true);
+  });
+
+  it("ignores aborted requests and non-API resource types", () => {
+    const { out, events } = runScript([t("/a")], false, {
+      backoff: FAST,
+      traffic: {
+        "/a": [
+          [
+            { kind: "failed", url: API, errorText: "net::ERR_ABORTED" },
+            { ...limited({}, `${BASE}/logo.png`), type: "image" },
+            { ...limited({}, `${BASE}/app.css`), type: "stylesheet" },
+            { ...limited({}, `${BASE}/app.js`), type: "script" },
+          ],
+        ],
+      },
+    });
+
+    expect(ofType(events, "reload")).toHaveLength(0);
+    expect(out.shots.every((s: object) => !("failedRequests" in s))).toBe(true);
+  });
+
+  it("records a network failure and a 500 without reloading", () => {
+    const { out, events } = runScript([t("/a")], false, {
+      backoff: FAST,
+      traffic: {
+        "/a": [
+          [
+            {
+              kind: "failed",
+              url: `${BASE}/api/down`,
+              errorText: "net::ERR_FAILED",
+            },
+            { kind: "response", url: `${BASE}/api/boom`, status: 500 },
+          ],
+        ],
+      },
+    });
+
+    expect(ofType(events, "reload")).toHaveLength(0);
+    const urls = out.shots[0].failedRequests.map(
+      (f: { url: string; status: number }) => [f.url, f.status],
+    );
+    expect(urls).toEqual(
+      expect.arrayContaining([
+        ["app.test/api/down", 0],
+        ["app.test/api/boom", 500],
+      ]),
+    );
+  });
+
+  it("caps failedRequests at 20 entries and 300-char urls", () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      kind: "response",
+      url: `${BASE}/${i}${"x".repeat(400)}`,
+      status: 500,
+    }));
+    const { out } = runScript([t("/a")], false, {
+      backoff: FAST,
+      traffic: { "/a": [many] },
+    });
+
+    const fr = out.shots[0].failedRequests;
+    expect(fr).toHaveLength(20);
+    expect(fr.every((f: { url: string }) => f.url.length <= 300)).toBe(true);
+  });
+
+  it("stops waiting once the budget is spent", () => {
+    const { out, events } = runScript([t("/a"), t("/b")], false, {
+      backoff: { minMs: 1, maxMs: 5, budgetMs: 0 },
+      traffic: { "/a": [[limited()], [ok()]], "/b": [[limited()], [ok()]] },
+    });
+
+    expect(ofType(events, "wait")).toHaveLength(0);
+    expect(ofType(events, "reload")).toHaveLength(0);
+    expect(shotsOf(out, "/b")[0].failedRequests?.[0].status).toBe(429);
   });
 });

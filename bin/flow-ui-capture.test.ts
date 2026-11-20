@@ -206,6 +206,28 @@ describe("flow-ui-capture — capture", () => {
     expect(h.removed).toEqual([`${W}/.flow-tmp/ui-capture/run-1`]);
   });
 
+  it("keeps a shot's failedRequests through validation into the artifact", () => {
+    const failedRequests = [
+      { url: "localhost:5173/api/cards", status: 429, count: 1 },
+    ];
+    const h = harness({}, {}, () => ({
+      exitCode: 0,
+      stdout:
+        JSON.stringify({
+          ...NODE_OK,
+          shots: [{ ...NODE_OK.shots[0], failedRequests }],
+        }) + "\n",
+    }));
+
+    expect(run(ARGS, h.deps)).toBe(0);
+
+    expect(result(h)).toMatchObject({ ran: true, shots: 1 });
+    const artifact = JSON.parse(h.files.get("/out.json")!);
+    expect(artifact.ok).toBe(true);
+    expect(artifact.section_shots[0].failedRequests).toEqual(failedRequests);
+    expect(validateUiDriverResult(artifact).ok).toBe(true);
+  });
+
   it("runs the script from the worktree against the resolved absolute module path, with no login", () => {
     const h = harness();
     run(ARGS, h.deps);

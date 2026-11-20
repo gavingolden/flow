@@ -10,6 +10,13 @@ import { planCapture, routeSlug } from "./ui-capture-plan";
 import { nameKey, type CaptureConfig } from "./ui-capture-script";
 import type { Target } from "./ui-capture-args";
 
+export const CAPTURE_BACKOFF = {
+  minMs: 5000,
+  maxMs: 15000,
+  budgetMs: 60000,
+} as const;
+export const RELOAD_STATUSES = [429, 503] as const;
+
 export function buildCaptureConfig(i: {
   worktree: string;
   baseUrl: string;
@@ -56,5 +63,7 @@ export function buildCaptureConfig(i: {
     maxSectionsPerView: withDark.maxSectionsPerView,
     maxShotsPerTarget: withDark.maxShotsPerTarget,
     names,
+    backoff: { ...CAPTURE_BACKOFF },
+    reloadStatuses: [...RELOAD_STATUSES],
   };
 }

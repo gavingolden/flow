@@ -975,6 +975,180 @@ describe("critique", () => {
   });
 });
 
+describe("critique on a rate-limited capture", () => {
+  const crit = `${W}/.flow-tmp/ui-critique`;
+  const ev = (name: string) => `${W}/.flow-tmp/ui-evidence/${name}.png`;
+  const limited = [{ url: "app.test/api/cards", status: 429, count: 1 }];
+  const shot = (
+    route: string,
+    viewport: string,
+    failedRequests?: { url: string; status: number; count: number }[],
+  ) => ({
+    route,
+    section: "Main",
+    viewport,
+    part: "whole",
+    path: ev(`${route.replace(/\W/g, "")}-${viewport}`),
+    ...(failedRequests ? { failedRequests } : {}),
+  });
+  const snap = (route: string) => ({
+    route,
+    path: ev(`snap-${route.replace(/\W/g, "")}`),
+  });
+  const rules = {
+    "/skills/flow-ui-ux/references/rendered-critique.md": "rubric",
+    "/skills/flow-ui-ux/references/visual-design.md": "vd",
+    "/skills/flow-ui-ux/references/layout.md": "layout",
+    "/skills/flow-ui-ux/references/accessibility.md": "a11y",
+  };
+  const seed = (shots: unknown[], routes: string[]) => ({
+    ...rules,
+    "/d.json": {
+      ran: true,
+      ok: true,
+      section_shots: shots,
+      route_snapshots: routes.map(snap),
+    },
+    "/plan.md": "plan",
+    "/child.json": { result: '{"findings":[]}' },
+    [`${crit}/log.json`]: { required: true, outcome: "clean" },
+    "/b.md": BODY,
+  });
+  const critiqueArgs = [
+    "critique",
+    "--driver-result",
+    "/d.json",
+    "--plan",
+    "/plan.md",
+    "--phase",
+    "round-0",
+    "--out",
+    "/out/c.json",
+    "--worktree",
+    W,
+  ];
+  const judge = (): HeadlessEnvelope => ({
+    ran: true,
+    artifact: "/child.json",
+    total_cost_usd: 0.5,
+  });
+  const ANT = "/analysis/ANT";
+
+  it("leaves the 429 screenshots and their route snapshot out of the judge's prompt", () => {
+    const h = harness(
+      seed(
+        [
+          shot(ANT, "phone", limited),
+          shot(ANT, "desktop", limited),
+          shot("/other", "phone"),
+          shot("/other", "desktop"),
+        ],
+        [ANT, "/other"],
+      ),
+      {},
+      judge,
+    );
+
+    run(critiqueArgs, h.deps);
+    const prompt = h.files.get("/scratch/ui-critique-prompt.md")!;
+    expect(h.spawned).toHaveLength(1);
+    expect(prompt).not.toContain(ev("analysisANT-phone"));
+    expect(prompt).not.toContain(ev("analysisANT-desktop"));
+    expect(prompt).not.toContain("snap-analysisANT");
+    expect(prompt).toContain(ev("other-phone"));
+    expect(prompt).toContain("snap-other");
+    expect(logOf(h).captureDegraded["round-0"]).toEqual({
+      shots: 2,
+      of: 4,
+      unjudgedRoutes: [ANT],
+    });
+
+    run(["render", "--worktree", W, "--body-file", "/b.md"], h.deps);
+    const body = h.files.get("/b.md")!;
+    expect(body).not.toContain("unresolved defect");
+    expect(body).toContain("Clean on the screenshots that loaded");
+    expect(body).toContain("- [ ] DECISION: the UI review did not run (");
+    expect(body).toContain(ANT);
+  });
+
+  it("judges a screenshot whose only failure is a 500 or 502", () => {
+    const h = harness(
+      seed(
+        [
+          shot("/a", "phone", [{ url: "x/y", status: 500, count: 1 }]),
+          shot("/b", "phone", [{ url: "x/y", status: 502, count: 3 }]),
+        ],
+        ["/a", "/b"],
+      ),
+      {},
+      judge,
+    );
+
+    run(critiqueArgs, h.deps);
+    const prompt = h.files.get("/scratch/ui-critique-prompt.md")!;
+    expect(prompt).toContain(ev("a-phone"));
+    expect(prompt).toContain(ev("b-phone"));
+    expect(logOf(h).captureDegraded).toBeUndefined();
+  });
+
+  it("skips with capture-degraded and spends nothing when no screenshot is usable", () => {
+    const h = harness(
+      seed([shot(ANT, "phone", limited), shot(ANT, "desktop", limited)], [ANT]),
+      {},
+      judge,
+    );
+
+    run(critiqueArgs, h.deps);
+    expect(result(h)).toEqual({ ran: false, skipReason: "capture-degraded" });
+    expect(h.spawned).toEqual([]);
+    expect(logOf(h)).toMatchObject({
+      costUsd: 0,
+      critiqueCalls: [],
+      captureDegraded: {
+        "round-0": { shots: 2, of: 2, unjudgedRoutes: [ANT] },
+      },
+    });
+  });
+
+  it("reverts a round whose targeted after-screenshot is degraded", () => {
+    const target = {
+      id: "f",
+      severity: "defect",
+      route: "/",
+      section: "Main",
+      viewport: "phone",
+      shot: SHOT,
+      observation: "o",
+      rule: "r",
+      fix: "f",
+    };
+    const h = harness({
+      "/c.json": { decision: "keep", regressed: false },
+      "/t.json": { findings: [target] },
+      "/a.json": { findings: [] },
+      "/ad.json": { section_shots: [shot("/", "phone", limited)] },
+    });
+
+    run(
+      [
+        "accept",
+        "--compare",
+        "/c.json",
+        "--targeted",
+        "/t.json",
+        "--after",
+        "/a.json",
+        "--after-driver",
+        "/ad.json",
+      ],
+      h.deps,
+    );
+
+    expect(result(h)).toMatchObject({ decision: "revert" });
+    expect(result(h).reason).toContain("not in the post-round screenshots");
+  });
+});
+
 describe("loop state coherence", () => {
   const tmp = `${W}/.flow-tmp`;
   const critDir = `${tmp}/ui-critique`;
