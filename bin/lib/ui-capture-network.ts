@@ -98,12 +98,15 @@ function track(page) {
 function recordResponses(page, baseHost) {
   var map = new Map();
   var pending = [];
+  var seen = new Map();
+  var latest = 0;
   page.on("response", function (res) {
     var req = res.request();
     var type = req.resourceType();
     if (type !== "fetch" && type !== "xhr") return;
     var status = res.status();
-    if (status < 200 || status > 299) return;
+    var failing = status >= 400;
+    if (!failing && (status < 200 || status > 299)) return;
     if (new URL(req.url()).host !== baseHost) return;
     var key = req.method() + " " + req.url() + " " + (req.postData() || "");
     var headers = {};
@@ -111,9 +114,17 @@ function recordResponses(page, baseHost) {
     Object.keys(raw).forEach(function (h) {
       if (DROPPED_HEADERS.indexOf(h) === -1) headers[h] = raw[h];
     });
+    // The latest response for a key wins, so a failure the reload recovered
+    // is replaced by its 2xx and a failure that persisted is replayed too.
+    var mine = ++latest;
+    seen.set(key, mine);
+    if (failing) {
+      map.set(key, { status: status, headers: headers, body: "" });
+      return;
+    }
     pending.push(
       res.body().then(
-        function (body) { map.set(key, { status: status, headers: headers, body: body }); },
+        function (body) { if (seen.get(key) === mine) map.set(key, { status: status, headers: headers, body: body }); },
         function () {},
       ),
     );

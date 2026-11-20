@@ -311,6 +311,13 @@ describe("generated capture script network handling", () => {
     expect(ofType(events, "reload")).toHaveLength(1);
     expect(ofType(events, "wait")).toHaveLength(1);
     expect(shotsOf(out, "/a").length).toBeGreaterThan(1);
+    const live = ofType(events, "net").filter(
+      (e) => e.url === API && e.served === "network",
+    );
+    expect(live).toHaveLength(2);
+    expect(
+      shotsOf(out, "/a").every((x) => x.failedRequests?.[0].status === 429),
+    ).toBe(true);
   });
 
   it("keeps a 429 when a POST with a different body to the same URL succeeds", () => {

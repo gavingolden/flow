@@ -107,7 +107,8 @@ async function login(browser) {
 // Other viewports are served the desktop load's API responses (reuse) so one
 // target costs the app one set of calls. Only the desktop load (reuse is null)
 // earns a wait-and-reload on a 429/503, so a persisting one costs one reload
-// per target; the other viewports are marked from what they see, not retried.
+// per target; the other viewports are served the final response (a persisting
+// 429 included) and so cost the app nothing more.
 async function open(browser, storageState, vp, scheme, url, reuse, recordHost) {
   const ctx = await browser.newContext({
     serviceWorkers: "block",
