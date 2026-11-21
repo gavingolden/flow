@@ -50,7 +50,21 @@ markdown instead of a helper block.
 4. `**Next action:**` (always, last) — the single most useful thing the
    user can do next, naming the reply verbs the site accepts (e.g.
    `approve` / `redirect: …` / `cancel`, or "tick the Test Steps boxes
-   and say `merge`").
+   and say `merge`"). At a merged / cancelled / gated / stalled
+   (needs-human) window, two or more next actions render as numbered
+   imperative steps (see `## Step contract`) whose last step is
+   `flow done <slug>` once the window can close.
+
+**The close verdict is helper-owned.** At merged, cancelled, gated and
+stalled windows the helper tells the reader whether anything is left
+undecided and whether `flow done` is safe: `flow-gate-summary` renders a
+`WINDOW:` row (`✓ safe to close — nothing recorded as open` /
+`✗ not ready — <reason>`) directly above `NEXT ACTION:`, and the turn-end
+hook prints one `flow:` line carrying the same verdict under any other
+turn at those windows, chat replies included. The model never authors a
+`WINDOW:` line and never writes "safe to close" itself, because only the
+recorded ledger can back that claim. Plan-approval, interview and
+checkpoint pauses carry no verdict.
 
 There is no catch-all slot. A Q&A answer, a mechanism note, or any
 content that does not fit one of the six labels above lives as prose
@@ -119,9 +133,17 @@ collapse).
 not in the plan and not filed as an issue — a mechanically-seeded
 deferral, an observed anti-pattern, or a supervisor-judged addition.
 flow only **lists** untracked items with their `#N`; it never
-auto-files one. `file #N` (any pause site) or `drop #N` are the only
-ways an item leaves the unfiled list; both produce a one-line
-confirmation, never a silent state change.
+auto-files one. A manual check only the user can perform (an after-merge
+step, a failed local follow-up) is an untracked item too, kind `manual`.
+**Record before you mention:** any follow-up, bug or idea a turn-ending
+message mentions is recorded with `flow-untracked add` (or listed in this
+slot, which the turn-end hook records) before the turn ends, never left
+only in prose — an unrecorded idea is invisible to the close verdict.
+The reply verbs are `file #N` / `drop #N` (any pause site), `file all` /
+`drop all`, `done #N` (a manual check; bare `done` keeps its needs-human
+resume meaning) and `launch #N [model] [effort]` (starts a follow-up
+pipeline for that item). They are the only ways an item leaves the open
+list; each produces a one-line confirmation, never a silent state change.
 
 **Count line**: minor, already-solved problems (findings fixed, defects
 closed) collapse to one line — `N findings fixed, M deferred` — rather
@@ -177,7 +199,9 @@ generalized rule in `references/output-style.md`.
    recommendation first, each option naming its good AND bad
    consequence on one line. `**Next action:**` keeps the single-line
    form the slot set above defines: the recommended reply verb, or
-   `choose one of the options above` when no recommendation exists.
+   `choose one of the options above` when no recommendation exists —
+   except at merged / cancelled / gated / stalled windows, where two or
+   more actions render as numbered steps ending in `flow done <slug>`.
 5. **Progressive disclosure.** Logs, diffs, and analysis live above the
    block or in a named artifact referenced by path. Advisory, never
    enforced: the impact summary runs about 150 words (the options list
@@ -267,16 +291,16 @@ supervisor runs a command, the user makes a call, a subagent reports
 back — name the actor at the start of the relevant step (`**Supervisor:**
 …`, `**User:** …`) so the reader never has to infer who does what.
 
-**Scope.** This section binds two surfaces: (a) the formal gate-grammar
+**Scope.** This section binds three surfaces: (a) the formal gate-grammar
 `NEXT ACTION:` row `bin/flow-gate-summary.ts` renders for a multi-action
-recipe, and (b) authored procedure docs — the escalation procedures in
-`references/failure-recovery.md`. It does **not** change the informal
-pause-block `**Next action:**` slot defined in `## The block` item 4
-above: that slot is bound by `## Language contract` rule 4 to a single
-most-useful next thing, single-line by construction, and stays that way.
-The two sections are not in tension — `## The block` governs the one
-informal slot; `## Step contract` governs everything else that lists out
-instructions. `## Language contract` rule 6's "structured options in the
+recipe, (b) authored procedure docs — the escalation procedures in
+`references/failure-recovery.md`, and (c) the informal pause-block
+`**Next action:**` slot at merged / cancelled / gated / stalled windows,
+where two or more actions render as numbered steps ending in
+`flow done <slug>` (its other sites stay bound by `## Language contract`
+rule 4 to a single most-useful next thing, single-line by construction).
+The sections are not in tension — `## The block` governs the slot set;
+`## Step contract` governs everything that lists out instructions. `## Language contract` rule 6's "structured options in the
 formal grammar are out of scope" is scoped to the informal
 `**Next action:**` slot's option-list shape (rule 4); it does not carve
 out the `NEXT ACTION:` row's numbered _steps_, which this section governs
@@ -475,8 +499,8 @@ in a feature plan's calibration appendix).
 > **Untracked:** none — #651 (bench the flash-medium/-low tiers) filed
 > at merge.
 > 5 findings fixed, 0 deferred.
-> **Next action:** none — `flow done re-run-flow-model-benchmark` when
-> you like.
+> WINDOW: ✓ safe to close — nothing recorded as open
+> **Next action:** `flow done re-run-flow-model-benchmark`
 
 **GATED, Q&A above the block (calibration sample 6):**
 

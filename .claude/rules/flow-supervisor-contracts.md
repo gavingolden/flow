@@ -178,8 +178,10 @@ origin HEAD`, never forced. Contract:
     (including the fix-applier's single consolidated issue when a PR merges mid-review — the same deferral path under a mandatory trigger),
     `/flow-pr-review` Step 5 retrospective generic-gap capture,
     `/flow-pipeline` Step 10 post-merge sweep, a user-instructed
-    `flow-untracked file <n>` reply, and `/flow-file-issue`'s hand-filed
-    path.** `flow-create-issue` fires only from these five sites;
+    `flow-untracked file <n>` reply (or its bulk form, the user's `file all`
+    reply, which files every open work item the render listed), and
+    `/flow-file-issue`'s hand-filed path.** `flow-create-issue` fires only
+    from these five sites;
     `flow-untracked` only lists, never files itself. Curation and the
     checkpoint-free `advance-to-step-5` route are detailed at
     [references/git-workflow.md](../../references/git-workflow.md).

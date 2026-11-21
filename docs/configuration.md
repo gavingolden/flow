@@ -723,6 +723,16 @@ set -g window-status-format '#{@flow-repo} #{@flow-phase-short}'
 `@flow-pr` carries the pipeline's PR number as bare digits (no leading
 `#`), and is empty until the pipeline has opened a PR.
 
+`@flow-phase-short` is close-aware at finished feature windows: `merged?`
+or `cancel?` means the window still holds undecided items, and plain
+`merged` / `cancel` means nothing is open (a clean window is safe for
+`flow done`). A trailing `?` means the window is waiting on you, the same
+convention as `plan?` and `ci?`. The values are plain ASCII and fit the
+7-column badge slot, so they render as text in a status bar or tree with no
+config change. The badge exists only under the tmux launcher; on the plain
+launcher the turn-end hook line and `flow ls`'s `CLOSE?` column carry the
+same verdict.
+
 After publishing these options flow issues a best-effort `tmux
 refresh-client -S`, so a phase change repaints your status bar
 immediately rather than waiting for the session's `status-interval` to
