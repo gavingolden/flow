@@ -1297,6 +1297,68 @@ describe("state", () => {
     expect(readState("untracked-wrong-type", dir)).toBeNull();
   });
 
+  it("readState round-trips manual-kind, doneAt and launchedAs untracked fields", () => {
+    const state: PipelineState = {
+      slug: "untracked-new-fields",
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      untracked: [
+        {
+          id: 1,
+          title: "after merge: check the badge",
+          source: "after-merge",
+          at: "2026-05-17T00:01:00Z",
+          kind: "manual",
+          doneAt: "2026-05-17T00:02:00Z",
+        },
+        {
+          id: 2,
+          title: "follow-up",
+          source: "pr-review",
+          at: "2026-05-17T00:01:00Z",
+          launchedAs: "follow-up-slug",
+        },
+      ],
+    };
+    writeState(state, dir);
+    expect(readState("untracked-new-fields", dir)).toEqual(state);
+  });
+
+  it("readState tolerates an unknown untracked kind instead of nulling the state", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "untracked-unknown-kind.json"),
+      JSON.stringify({
+        slug: "untracked-unknown-kind",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        untracked: [
+          { id: 1, title: "x", source: "y", at: "z", kind: "from-the-future" },
+        ],
+      }),
+    );
+    expect(readState("untracked-unknown-kind", dir)).not.toBeNull();
+  });
+
+  it("readState returns null when doneAt or launchedAs is not a string", () => {
+    for (const field of ["doneAt", "launchedAs"] as const) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, `untracked-bad-${field}.json`),
+        JSON.stringify({
+          slug: `untracked-bad-${field}`,
+          phase: "merged",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          untracked: [{ id: 1, title: "x", source: "y", at: "z", [field]: 3 }],
+        }),
+      );
+      expect(readState(`untracked-bad-${field}`, dir)).toBeNull();
+    }
+  });
+
   it("readState round-trips valid pid and procStartedAt through writeState", () => {
     const withLiveness: PipelineState = {
       slug: "with-liveness",

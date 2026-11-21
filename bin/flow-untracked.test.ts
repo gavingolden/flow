@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readState,
   statePath,
@@ -20,6 +20,12 @@ import {
   renderMarkdown,
   run,
 } from "./flow-untracked";
+
+// The verbs refresh the tab badge best-effort; keep tests off the real tmux.
+vi.mock("./lib/tmux", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./lib/tmux")>()),
+  publishStateBadges: vi.fn(() => ({ ok: true, stderr: "" })),
+}));
 
 let dir: string;
 const BASE: PipelineState = {
@@ -216,16 +222,28 @@ describe("renderGate / renderMarkdown", () => {
     expect(UNTRACKED_RENDER_CAP).toBe(2);
     const lines = renderGate(items);
     expect(lines).toEqual([
-      "  - #3 third (reply: file #3 / drop #3)",
-      "  - #2 second (reply: file #2 / drop #2)",
+      "  - #3 third (reply: file #3 / drop #3 / launch #3)",
+      "  - #2 second (reply: file #2 / drop #2 / launch #2)",
       "  (+1 more — flow-untracked list)",
     ]);
   });
 
   it("omits the overflow tail when at or under the cap", () => {
     expect(renderGate(items.slice(0, 2))).toEqual([
-      "  - #2 second (reply: file #2 / drop #2)",
-      "  - #1 first (reply: file #1 / drop #1)",
+      "  - #2 second (reply: file #2 / drop #2 / launch #2)",
+      "  - #1 first (reply: file #1 / drop #1 / launch #1)",
+    ]);
+  });
+
+  it("lifts the cap when uncapped, listing every item", () => {
+    const lines = renderGate(items, { uncapped: true });
+    expect(lines).toHaveLength(3);
+    expect(lines.join("\n")).not.toContain("more");
+  });
+
+  it("offers done instead of file/launch for a manual item", () => {
+    expect(renderGate([{ ...items[0], kind: "manual" }])).toEqual([
+      "  - #1 first (reply: done #1 / drop #1)",
     ]);
   });
 
@@ -474,5 +492,262 @@ describe("run", () => {
 
   it("an unknown subcommand fails with exit 2", () => {
     expect(run(["bogus"], { resolveSlug: () => "s1", stateDir: dir })).toBe(2);
+  });
+});
+
+// --- New verbs ---
+
+describe("run: bulk, done, launch, verdict, seed-merge, render", () => {
+  const base = (extra: Partial<PipelineState> = {}): PipelineState => ({
+    ...BASE,
+    phase: "merged",
+    ...extra,
+  });
+  const deps = (extra: Record<string, unknown> = {}) => ({
+    resolveSlug: () => "s1",
+    stateDir: dir,
+    now,
+    out: () => {},
+    ...extra,
+  });
+
+  it("file --all files open work items only and leaves manual items", () => {
+    let s = addItem(base(), { title: "a", source: "x" }, now);
+    s = addItem(s, { title: "b", source: "x" }, now);
+    s = addItem(s, { title: "m", source: "x", kind: "manual" }, now);
+    seed(s);
+    const lines: string[] = [];
+    let n = 0;
+    const code = run(
+      ["file", "--all"],
+      deps({
+        out: (l: string) => lines.push(l),
+        createIssue: () => ({ url: `https://x/${++n}` }),
+      }),
+    );
+    expect(code).toBe(0);
+    const items = readState("s1", dir)!.untracked!;
+    expect(items[0].filedAs).toBe("https://x/1");
+    expect(items[1].filedAs).toBe("https://x/2");
+    expect(items[2].filedAs).toBeUndefined();
+    expect(lines.join("")).toBe("Filed #1 → https://x/1, #2 → https://x/2.\n");
+  });
+
+  it("file --all persists successes, exits non-zero and leaves the rest open on a failure", () => {
+    let s = addItem(base(), { title: "a", source: "x" }, now);
+    s = addItem(s, { title: "b", source: "x" }, now);
+    s = addItem(s, { title: "c", source: "x" }, now);
+    seed(s);
+    let n = 0;
+    const code = run(
+      ["file", "--all"],
+      deps({
+        createIssue: () => {
+          if (++n === 2) throw new CreateIssueError("no gh", 1);
+          return { url: `https://x/${n}` };
+        },
+      }),
+    );
+    expect(code).toBe(1);
+    const items = readState("s1", dir)!.untracked!;
+    expect(items.map((i) => i.filedAs)).toEqual([
+      "https://x/1",
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("drop --all drops every open item and the verdict becomes safe-to-close", () => {
+    let s = addItem(base(), { title: "a", source: "x" }, now);
+    s = addItem(s, { title: "m", source: "x", kind: "manual" }, now);
+    seed(s);
+    expect(run(["drop", "--all"], deps())).toBe(0);
+    const items = readState("s1", dir)!.untracked!;
+    expect(items.every((i) => i.droppedAt === now())).toBe(true);
+    const lines: string[] = [];
+    run(["verdict", "--json"], deps({ out: (l: string) => lines.push(l) }));
+    expect(JSON.parse(lines.join("")).verdict).toBe("safe-to-close");
+  });
+
+  it("done <id> marks a manual item done; a work item and a bare done are refused", () => {
+    let s = addItem(base(), { title: "m", source: "x", kind: "manual" }, now);
+    s = addItem(s, { title: "w", source: "x" }, now);
+    seed(s);
+    expect(run(["done", "1"], deps())).toBe(0);
+    expect(readState("s1", dir)!.untracked![0].doneAt).toBe(now());
+    expect(run(["done", "2"], deps())).toBe(2);
+    expect(run(["done"], deps())).toBe(2);
+    expect(readState("s1", dir)!.untracked![1].doneAt).toBeUndefined();
+  });
+
+  it("done --all marks only open manual items", () => {
+    let s = addItem(base(), { title: "m", source: "x", kind: "manual" }, now);
+    s = addItem(s, { title: "w", source: "x" }, now);
+    seed(s);
+    expect(run(["done", "--all"], deps())).toBe(0);
+    const items = readState("s1", dir)!.untracked!;
+    expect(items[0].doneAt).toBe(now());
+    expect(items[1].doneAt).toBeUndefined();
+  });
+
+  it("launch passes flags, scrubs identity env, and records launchedAs on exit 0", () => {
+    seed(addItem(base(), { title: "t", body: "b", source: "x" }, now));
+    let seen: { argv: string[]; env: NodeJS.ProcessEnv } | null = null;
+    const code = run(
+      ["launch", "1", "--model", "opus", "--effort", "high"],
+      deps({
+        env: { FLOW_SLUG: "s1", TMUX_PANE: "%3", KEEP: "1" },
+        spawnLaunch: (argv: string[], env: NodeJS.ProcessEnv) => {
+          seen = { argv, env };
+          return { stdout: "flow:new-slug\n", exitCode: 0 };
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(seen!.argv).toEqual([
+      "flow",
+      "feature",
+      "create",
+      "t\n\nb",
+      "--model",
+      "opus",
+      "--effort",
+      "high",
+    ]);
+    expect(seen!.env.FLOW_SLUG).toBeUndefined();
+    expect(seen!.env.TMUX_PANE).toBeUndefined();
+    expect(seen!.env.KEEP).toBe("1");
+    expect(readState("s1", dir)!.untracked![0].launchedAs).toBe("new-slug");
+  });
+
+  it("launch leaves the item open on a non-zero exit or a missing flow: line", () => {
+    seed(addItem(base(), { title: "t", source: "x" }, now));
+    expect(
+      run(
+        ["launch", "1"],
+        deps({ spawnLaunch: () => ({ stdout: "flow:x\n", exitCode: 1 }) }),
+      ),
+    ).toBe(1);
+    expect(
+      run(
+        ["launch", "1"],
+        deps({ spawnLaunch: () => ({ stdout: "nope\n", exitCode: 0 }) }),
+      ),
+    ).toBe(1);
+    expect(readState("s1", dir)!.untracked![0].launchedAs).toBeUndefined();
+  });
+
+  it("launch rejects a model word outside the allowed aliases", () => {
+    seed(addItem(base(), { title: "t", source: "x" }, now));
+    let called = false;
+    const code = run(
+      ["launch", "1", "--model", "gpt"],
+      deps({
+        spawnLaunch: () => {
+          called = true;
+          return { stdout: "flow:x", exitCode: 0 };
+        },
+      }),
+    );
+    expect(code).toBe(1);
+    expect(called).toBe(false);
+  });
+
+  it("verdict --json reports needs-you with the open items", () => {
+    seed(addItem(base(), { title: "a", source: "x" }, now));
+    const lines: string[] = [];
+    run(["verdict", "--json"], deps({ out: (l: string) => lines.push(l) }));
+    const v = JSON.parse(lines.join(""));
+    expect(v.verdict).toBe("needs-you");
+    expect(v.openItems).toHaveLength(1);
+    expect(v.window).toBe("WINDOW: ✗ not ready — 1 item undecided");
+  });
+
+  it("mutating verbs print a one-line confirmation", () => {
+    seed(base());
+    const lines: string[] = [];
+    const d = deps({ out: (l: string) => lines.push(l) });
+    run(["add", "--title", "t", "--source", "x"], d);
+    run(["drop", "1"], d);
+    expect(lines).toEqual(["flow-untracked: added #1\n", "Dropped #1.\n"]);
+  });
+
+  it("add --kind manual records a manual item", () => {
+    seed(base());
+    run(["add", "--title", "t", "--source", "x", "--kind", "manual"], deps());
+    expect(readState("s1", dir)!.untracked![0].kind).toBe("manual");
+    expect(
+      run(["add", "--title", "t", "--source", "x", "--kind", "bogus"], deps()),
+    ).toBe(2);
+  });
+
+  it("render --uncapped lists every open id; default stays capped", () => {
+    let s = base();
+    for (let i = 1; i <= 4; i++) {
+      s = addItem(
+        s,
+        { title: `t${i}`, source: "x" },
+        () => `2026-05-17T00:0${i}:00Z`,
+      );
+    }
+    seed(s);
+    const capped: string[] = [];
+    run(
+      ["render", "--format", "gate", "--unfiled-only"],
+      deps({ out: (l: string) => capped.push(l) }),
+    );
+    expect(capped.join("")).toContain("+2 more");
+    const all: string[] = [];
+    run(
+      ["render", "--format", "gate", "--unfiled-only", "--uncapped"],
+      deps({ out: (l: string) => all.push(l) }),
+    );
+    const text = all.join("");
+    for (const id of [1, 2, 3, 4]) expect(text).toContain(`#${id} `);
+    expect(text).not.toContain("more");
+  });
+
+  it("render excludes after-merge items (they show under MANUAL ACTION)", () => {
+    let s = addItem(
+      base(),
+      { title: "am", source: "after-merge", kind: "manual" },
+      now,
+    );
+    s = addItem(s, { title: "w", source: "x" }, now);
+    seed(s);
+    const lines: string[] = [];
+    run(
+      ["render", "--format", "gate", "--unfiled-only"],
+      deps({ out: (l: string) => lines.push(l) }),
+    );
+    expect(lines.join("")).not.toContain("am");
+    expect(lines.join("")).toContain("#2 w");
+  });
+
+  it("seed-merge adds manual items from files, skips missing files, and is idempotent", () => {
+    seed(base());
+    const files: Record<string, string> = {
+      "/am": "run the thing\n",
+      "/fu":
+        JSON.stringify({ command: "rm x", reason: "why", auto: true }) + "\n",
+    };
+    const d = deps({ readFileFn: (p: string) => files[p] ?? null });
+    const argv = [
+      "seed-merge",
+      "--after-merge-file",
+      "/am",
+      "--followups-jsonl",
+      "/fu",
+      "--followups-block-file",
+      "/missing",
+    ];
+    expect(run(argv, d)).toBe(0);
+    const items = readState("s1", dir)!.untracked!;
+    expect(items.map((i) => [i.source, i.kind])).toEqual([
+      ["after-merge", "manual"],
+      ["followup", "manual"],
+    ]);
+    expect(run(argv, d)).toBe(0);
+    expect(readState("s1", dir)!.untracked).toHaveLength(2);
   });
 });

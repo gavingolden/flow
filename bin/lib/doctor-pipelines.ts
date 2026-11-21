@@ -99,7 +99,7 @@ export function checkPipelineState(
           summary: `${unclosed.length} merged or cancelled pipeline record(s) never closed`,
           details: [
             capped(unclosed.map((s) => s.slug)).join(", "),
-            "flow done --merged removes those records; they stop appearing in flow ls",
+            "flow done --merged removes those records, except windows with undecided items (decide them in the window, or add --force); closed records stop appearing in flow ls",
           ],
           fix: "flow done --merged",
         },

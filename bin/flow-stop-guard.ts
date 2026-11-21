@@ -40,6 +40,7 @@ import {
   nowIso as defaultNowIso,
   PENDING_PHASES,
   readState,
+  resolveStateKind,
   type PipelineState,
 } from "./lib/state";
 import {
@@ -51,7 +52,23 @@ import {
   type TurnTracking,
 } from "./lib/stop-turn-tracking";
 import { finalizePhase } from "./lib/phase-advance";
-import { recordLastPause } from "./lib/pause-capture";
+import {
+  markPauseConsumed,
+  parsePauseSlots,
+  readLastPause,
+  recordLastPause,
+  slotItems,
+  type PauseSlots,
+} from "./lib/pause-capture";
+import {
+  closeVerdict,
+  verdictWord,
+  type CloseVerdict,
+} from "./lib/close-verdict";
+import {
+  defaultPublishBadges,
+  recordTurnEndItems,
+} from "./lib/untracked-verbs";
 import {
   ORPHAN_GUIDANCE,
   orphanNotice,
@@ -142,7 +159,155 @@ export type Deps = {
     phase: string,
     message: string | undefined,
   ) => void;
+  /** Parses the turn's message into pause slots (production: `parsePauseSlots`). */
+  parsePause?: (message: string | undefined) => PauseSlots | null;
+  /**
+   * The unconsumed gate-sourced pause record for this phase, if any
+   * (production: `readLastPause` filtered to `source: "gate"`). The gate block
+   * is Bash tool output, so the turn's own message usually carries no block.
+   */
+  readGatePause?: (slug: string, phase: string) => PauseSlots | null;
+  /** Marks that gate record consumed (production: `markPauseConsumed`). */
+  consumeGatePause?: (slug: string) => void;
+  /**
+   * Adds un-numbered slot items to the slug's ledger with dedup and returns
+   * the updated state (production: `appendRecorded` + `writeState`).
+   */
+  recordItems?: (
+    slug: string,
+    items: Array<{ title: string; kind: "work" | "manual" }>,
+  ) => PipelineState;
+  /** Re-publishes the tab badges (production: `publishStateBadges`). */
+  publishBadges?: (state: PipelineState) => void;
 };
+
+function defaultParsePause(message: string | undefined): PauseSlots | null {
+  const slots = message ? parsePauseSlots(message) : null;
+  return slots ? { phase: "", at: "", ...slots } : null;
+}
+
+const VERDICT_PHASES: ReadonlySet<string> = new Set([
+  "merged",
+  "cancelled",
+  "gated",
+  "needs-human",
+]);
+
+/**
+ * The hook line for a finished window. Null when the message already carries
+ * the helper's `WINDOW:` row naming the same verdict word, or when no verdict
+ * applies. The model never authors this line.
+ */
+export function verdictNotice(
+  v: CloseVerdict,
+  parsed: PauseSlots | null,
+  slug: string,
+  recorded: number[],
+  finished = true,
+): string | null {
+  if (v.kind !== "safe-to-close" && v.kind !== "needs-you") return null;
+  const word = v.kind === "safe-to-close" ? "safe" : "not-ready";
+  if (parsed?.window !== undefined && verdictWord(parsed.window) === word) {
+    return null;
+  }
+  const done = `flow done ${slug}`;
+  if (v.kind === "safe-to-close") {
+    if (parsed === null && finished) {
+      return `flow: 0 recorded items open — this reply had no status block; if it suggested follow-up work, ask me to record it, otherwise ${done}`;
+    }
+    return `flow: ✓ safe to close — ${v.reason}. Next: ${done}`;
+  }
+  const open = v.openItems
+    .slice(0, 5)
+    .map(
+      (i) =>
+        `#${i.id} ${i.title}${recorded.includes(i.id) ? " (recorded just now)" : ""}`,
+    )
+    .join("; ");
+  const detail = open ? ` (${open})` : "";
+  const next = v.steps.length > 0 ? `. Next: ${v.steps.join("; then ")}` : "";
+  return `flow: ✗ not ready — ${v.reason}${detail}${next}`;
+}
+
+/**
+ * At merged / cancelled / gated / needs-human turn ends: record the message's
+ * un-numbered Untracked / Manual action (and, at finished phases, Unsolved)
+ * bullets into the ledger, refresh the badge only when something was
+ * recorded, and print the close verdict as one `systemMessage` unless the
+ * message already carries the helper's matching `WINDOW:` row. Best-effort;
+ * never changes the exit code. Epic windows are out of scope.
+ */
+function closeVerdictHook(
+  deps: Deps,
+  slug: string,
+  state: PipelineState,
+  message: string | undefined,
+): void {
+  try {
+    if (!VERDICT_PHASES.has(state.phase)) return;
+    if (resolveStateKind(state) !== "feature") return;
+    const fromMessage = (deps.parsePause ?? defaultParsePause)(message);
+    let parsed: PauseSlots | null = fromMessage;
+    if (parsed === null) {
+      // The merged/gated block is Bash output: use the gate's own record for
+      // this phase once, then later block-less replies fall to the hedged line.
+      const gate = deps.readGatePause?.(slug, state.phase) ?? null;
+      if (gate && gate.source === "gate" && gate.consumed !== true) {
+        parsed = gate;
+        deps.consumeGatePause?.(slug);
+      }
+    }
+    let cur = state;
+    const recorded: number[] = [];
+    if (fromMessage !== null && deps.recordItems) {
+      const finishedPhase =
+        state.phase === "merged" || state.phase === "cancelled";
+      const items = [
+        ...slotItems(fromMessage.untracked).map((title) => ({
+          title,
+          kind: "work" as const,
+        })),
+        ...(finishedPhase
+          ? slotItems(fromMessage.unsolved).map((title) => ({
+              title,
+              kind: "work" as const,
+            }))
+          : []),
+        ...slotItems(fromMessage.manualAction).map((title) => ({
+          title,
+          kind: "manual" as const,
+        })),
+      ];
+      if (items.length > 0) {
+        const before = new Set((cur.untracked ?? []).map((i) => i.id));
+        const next = deps.recordItems(slug, items);
+        for (const i of next.untracked ?? []) {
+          if (!before.has(i.id)) recorded.push(i.id);
+        }
+        cur = next;
+        if (recorded.length > 0) {
+          try {
+            deps.publishBadges?.(cur);
+          } catch {
+            // publish-only
+          }
+        }
+      }
+    }
+    const v = closeVerdict(cur);
+    const notice = verdictNotice(
+      v,
+      parsed,
+      slug,
+      recorded,
+      state.phase === "merged" || state.phase === "cancelled",
+    );
+    if (notice)
+      deps.writeOut?.(JSON.stringify({ systemMessage: notice }) + "\n");
+  } catch {
+    // the stop decision never depends on the verdict line
+  }
+}
 
 function savePause(
   deps: Deps,
@@ -463,6 +628,7 @@ async function runCore(
     tracking = { ...tracking, lastStopAt: now };
     deps.writeTurn(tracking);
     savePause(deps, slug, state.phase, input.last_assistant_message);
+    closeVerdictHook(deps, slug, state, input.last_assistant_message);
     return 0;
   }
 
@@ -667,5 +833,12 @@ if (import.meta.main) {
     recordStops: (slug, n) => recordOrphanStops(slug, n),
     recordPause: (slug, phase, message) =>
       recordLastPause(slug, phase, message),
+    readGatePause: (slug, phase) => {
+      const r = readLastPause(slug);
+      return r && r.source === "gate" && r.phase === phase ? r : null;
+    },
+    consumeGatePause: (slug) => markPauseConsumed(slug),
+    recordItems: (slug, items) => recordTurnEndItems(slug, items),
+    publishBadges: (s) => defaultPublishBadges(s),
   }).then((code) => process.exit(code));
 }

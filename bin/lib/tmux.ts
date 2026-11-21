@@ -21,6 +21,7 @@ import {
   type PipelineState,
 } from "./state";
 import { sleepSync } from "./sleep";
+import { badgeShort } from "./close-verdict";
 
 export const FLOW_SESSION = "flow";
 /**
@@ -850,6 +851,12 @@ export type SetWindowPhaseDeps = {
  * still publish). Every set-option beyond the raw `@flow-phase` set is
  * swallowed — the returned `ok` is driven by the raw `@flow-phase` set only.
  *
+ * `@flow-phase-short` is `badgeShort(state) ?? shortPhase(phase)`: a finished
+ * feature window whose ledger still holds undecided items publishes `merged?`
+ * / `cancel?` (a trailing `?` is the established "waiting on you" mark),
+ * otherwise the plain `merged` / `cancel`. ASCII and <= 7 columns, derived
+ * from state only (publish-only — nothing reads the option back).
+ *
  * Ends with a best-effort `refresh-client -S` so a phase change repaints
  * the status line immediately instead of waiting out the session's
  * `status-interval` (5s by default). Same swallowed-result discipline as
@@ -881,7 +888,14 @@ export function publishStateBadges(
   state: Readonly<
     Pick<
       PipelineState,
-      "slug" | "phase" | "phaseLog" | "pr" | "kind" | "epic" | "launcher"
+      | "slug"
+      | "phase"
+      | "phaseLog"
+      | "pr"
+      | "kind"
+      | "epic"
+      | "launcher"
+      | "untracked"
     >
   >,
   deps: SetWindowPhaseDeps & { env?: NodeJS.ProcessEnv } = {},
@@ -911,7 +925,7 @@ export function publishStateBadges(
     buildSetOptionArgs(
       window.id,
       FLOW_PHASE_SHORT_OPTION,
-      shortPhase(state.phase),
+      badgeShort(state) ?? shortPhase(state.phase),
     ),
   );
   spawn(

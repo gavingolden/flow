@@ -16,11 +16,16 @@
  * pipelines.
  *
  * Usage:
- *   flow-untracked add --title <t> [--body <b>] --source <s>
+ *   flow-untracked add --title <t> [--body <b>] --source <s> [--kind work|manual]
  *   flow-untracked list [--json]
- *   flow-untracked file <id>
- *   flow-untracked drop <id>
- *   flow-untracked render --format gate|markdown [--unfiled-only]
+ *   flow-untracked file <id> | --all      (--all: open work items only)
+ *   flow-untracked drop <id> | --all
+ *   flow-untracked done <id> | --all      (manual checks only; id required)
+ *   flow-untracked launch <id> [--model <m>] [--effort <e>]
+ *   flow-untracked verdict --json
+ *   flow-untracked seed-merge [--after-merge-file <p>] [--followups-jsonl <p>]
+ *                             [--followups-block-file <p>]
+ *   flow-untracked render --format gate|markdown [--unfiled-only] [--uncapped]
  *
  * Exit codes:
  *   0 — success (including no-op cases like an empty/absent state file for
@@ -44,6 +49,18 @@ import {
   type PipelineState,
   type UntrackedItem,
 } from "./lib/state";
+import { closeVerdict, isOpenItem } from "./lib/close-verdict";
+import {
+  defaultPublishBadges,
+  defaultSpawnLaunch,
+  doneItem,
+  dropAll,
+  fileAll,
+  launchItem,
+  verdictJson,
+  type SpawnLaunch,
+} from "./lib/untracked-verbs";
+import { applyMergeSeeds, mergeSeedEntries } from "./lib/untracked-merge-seed";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { resolveAnchorRepoRoot } from "./lib/value-anchors";
 
@@ -61,7 +78,12 @@ function nextId(items: UntrackedItem[]): number {
 
 export function addItem(
   state: PipelineState,
-  input: { title: string; body?: string; source: string },
+  input: {
+    title: string;
+    body?: string;
+    source: string;
+    kind?: "work" | "manual";
+  },
   now: () => string = () => new Date().toISOString(),
 ): PipelineState {
   const items = state.untracked ?? [];
@@ -72,6 +94,7 @@ export function addItem(
     at: now(),
   };
   if (input.body !== undefined) item.body = input.body;
+  if (input.kind === "manual") item.kind = "manual";
   return { ...state, untracked: [...items, item] };
 }
 
@@ -87,7 +110,12 @@ export function addItem(
  */
 export function addItemDedup(
   state: PipelineState,
-  input: { title: string; body?: string; source: string },
+  input: {
+    title: string;
+    body?: string;
+    source: string;
+    kind?: "work" | "manual";
+  },
   now: () => string = () => new Date().toISOString(),
 ): { state: PipelineState; id: number; deduped: boolean } {
   const items = state.untracked ?? [];
@@ -221,19 +249,32 @@ export function dropItem(
  * never breach the pause/terminal block's ~12-line ceiling. Callers filter
  * (undropped, optionally unfiled-only) before calling.
  */
-function capped(items: UntrackedItem[]): {
+function capped(
+  items: UntrackedItem[],
+  uncapped = false,
+): {
   shown: UntrackedItem[];
   remaining: number;
 } {
   const sorted = [...items].sort((a, b) => b.at.localeCompare(a.at));
-  const shown = sorted.slice(0, UNTRACKED_RENDER_CAP);
+  const shown = uncapped ? sorted : sorted.slice(0, UNTRACKED_RENDER_CAP);
   return { shown, remaining: sorted.length - shown.length };
 }
 
-export function renderGate(items: UntrackedItem[]): string[] {
-  const { shown, remaining } = capped(items);
-  const lines = shown.map(
-    (i) => `  - #${i.id} ${i.title} (reply: file #${i.id} / drop #${i.id})`,
+/**
+ * `uncapped` lists every open item — used only at the merged/cancelled
+ * renders that offer `file all` / `drop all`, so a bulk reply never touches
+ * an item the reader cannot see. Pauses keep the cap (the ~12-line ceiling).
+ */
+export function renderGate(
+  items: UntrackedItem[],
+  opts: { uncapped?: boolean } = {},
+): string[] {
+  const { shown, remaining } = capped(items, opts.uncapped);
+  const lines = shown.map((i) =>
+    i.kind === "manual"
+      ? `  - #${i.id} ${i.title} (reply: done #${i.id} / drop #${i.id})`
+      : `  - #${i.id} ${i.title} (reply: file #${i.id} / drop #${i.id} / launch #${i.id})`,
   );
   if (remaining > 0) {
     lines.push(`  (+${remaining} more — flow-untracked list)`);
@@ -241,8 +282,11 @@ export function renderGate(items: UntrackedItem[]): string[] {
   return lines;
 }
 
-export function renderMarkdown(items: UntrackedItem[]): string[] {
-  const { shown, remaining } = capped(items);
+export function renderMarkdown(
+  items: UntrackedItem[],
+  opts: { uncapped?: boolean } = {},
+): string[] {
+  const { shown, remaining } = capped(items, opts.uncapped);
   const lines = shown.map((i) => `- #${i.id} ${i.title}`);
   if (remaining > 0) {
     lines.push(`  (+${remaining} more — flow-untracked list)`);
@@ -259,6 +303,10 @@ export type Deps = {
   stateDir?: string;
   now?: () => string;
   createIssue?: CreateIssue;
+  spawnLaunch?: SpawnLaunch;
+  publishBadges?: (state: PipelineState) => void;
+  readFileFn?: (p: string) => string | null;
+  env?: NodeJS.ProcessEnv;
   out?: (line: string) => void;
   err?: (line: string) => void;
 };
@@ -277,9 +325,32 @@ function saveState(state: PipelineState, deps: Deps): void {
   else writeSt(state);
 }
 
+/** Persist, then refresh the tab badge best-effort (never fails the verb). */
+function commit(state: PipelineState, deps: Deps): void {
+  saveState(state, deps);
+  try {
+    (deps.publishBadges ?? defaultPublishBadges)(state);
+  } catch {
+    // publish-only
+  }
+}
+
+function readTextOrNull(p: string): string | null {
+  try {
+    return fs.readFileSync(p, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 // --- CLI arg parsing ---
 
-type AddArgs = { title: string; body?: string; source: string };
+type AddArgs = {
+  title: string;
+  body?: string;
+  source: string;
+  kind?: "work" | "manual";
+};
 
 function parseAddArgs(argv: string[]): AddArgs | { error: string } {
   const out: Partial<AddArgs> = {};
@@ -292,7 +363,12 @@ function parseAddArgs(argv: string[]): AddArgs | { error: string } {
     if (flag === "--title") out.title = value;
     else if (flag === "--body") out.body = value;
     else if (flag === "--source") out.source = value;
-    else return { error: `unknown flag: ${flag}` };
+    else if (flag === "--kind") {
+      if (value !== "work" && value !== "manual") {
+        return { error: "--kind must be 'work' or 'manual'" };
+      }
+      out.kind = value;
+    } else return { error: `unknown flag: ${flag}` };
     i++;
   }
   if (!out.title) return { error: "--title is required" };
@@ -300,14 +376,22 @@ function parseAddArgs(argv: string[]): AddArgs | { error: string } {
   return out as AddArgs;
 }
 
-type RenderArgs = { format: "gate" | "markdown"; unfiledOnly: boolean };
+type RenderArgs = {
+  format: "gate" | "markdown";
+  unfiledOnly: boolean;
+  uncapped: boolean;
+};
 
 function parseRenderArgs(argv: string[]): RenderArgs | { error: string } {
-  const out: Partial<RenderArgs> = { unfiledOnly: false };
+  const out: Partial<RenderArgs> = { unfiledOnly: false, uncapped: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === "--unfiled-only") {
       out.unfiledOnly = true;
+      continue;
+    }
+    if (flag === "--uncapped") {
+      out.uncapped = true;
       continue;
     }
     const value = argv[i + 1];
@@ -344,7 +428,7 @@ function runAdd(argv: string[], deps: Deps): number {
   if ("error" in parsed) {
     console.error(`flow-untracked: ${parsed.error}`);
     console.error(
-      "usage: flow-untracked add --title <t> [--body <b>] --source <s>",
+      "usage: flow-untracked add --title <t> [--body <b>] --source <s> [--kind work|manual]",
     );
     return 2;
   }
@@ -359,7 +443,8 @@ function runAdd(argv: string[], deps: Deps): number {
     out(`flow-untracked: existing item #${result.id} (not re-added)\n`);
     return 0;
   }
-  saveState(result.state, deps);
+  commit(result.state, deps);
+  out(`flow-untracked: added #${result.id}\n`);
   return 0;
 }
 
@@ -377,6 +462,9 @@ function runList(argv: string[], deps: Deps): number {
     const tags = [
       i.filedAs ? `filed: ${i.filedAs}` : undefined,
       i.droppedAt ? "dropped" : undefined,
+      i.doneAt ? "done" : undefined,
+      i.launchedAs ? `launched: ${i.launchedAs}` : undefined,
+      i.kind === "manual" ? "manual" : undefined,
     ].filter((t): t is string => t !== undefined);
     const suffix = tags.length > 0 ? ` (${tags.join(", ")})` : "";
     return `#${i.id} ${i.title}${suffix}`;
@@ -414,11 +502,49 @@ function defaultCreateIssue(): CreateIssue {
   };
 }
 
+function failureExitCode(e: unknown): number {
+  // A flow-create-issue failure carries its child exit code structurally
+  // (CreateIssueError.exitCode) rather than a message-string prefix — a
+  // rejected body (exit 3) is distinct from any other gh/Issues-surface
+  // failure (exit 1). Unknown id stays a bad-args case (exit 2, matching
+  // `drop`'s contract), routed on the plain-Error message prefix.
+  if (e instanceof CreateIssueError) return e.exitCode === 3 ? 3 : 1;
+  return (e as Error).message.startsWith("no untracked item") ? 2 : 1;
+}
+
+function runFileAll(deps: Deps): number {
+  const state = loadState(deps);
+  if (!state) {
+    console.error("flow-untracked: no state file for this pipeline");
+    return 2;
+  }
+  const out = deps.out ?? ((s: string) => process.stdout.write(s));
+  const createIssue = deps.createIssue ?? defaultCreateIssue();
+  const r = fileAll(state, {
+    fileOne: (s, id) => fileItem(s, id, createIssue),
+  });
+  if (r.filed.length > 0) commit(r.state, deps);
+  const summary = r.filed.map((f) => `#${f.id} → ${f.url}`).join(", ");
+  out(
+    r.filed.length > 0
+      ? `Filed ${summary}.\n`
+      : "flow-untracked: no open work items to file\n",
+  );
+  if (r.failure) {
+    console.error(
+      `flow-untracked: filing #${r.failure.id} failed: ${r.failure.message}; remaining items stay open`,
+    );
+    return failureExitCode(r.failure.error);
+  }
+  return 0;
+}
+
 function runFile(argv: string[], deps: Deps): number {
+  if (argv[0] === "--all") return runFileAll(deps);
   const id = parseId(argv);
   if (typeof id !== "number") {
     console.error(`flow-untracked: ${id.error}`);
-    console.error("usage: flow-untracked file <id>");
+    console.error("usage: flow-untracked file <id> | --all");
     return 2;
   }
   const state = loadState(deps);
@@ -426,31 +552,27 @@ function runFile(argv: string[], deps: Deps): number {
     console.error("flow-untracked: no state file for this pipeline");
     return 2;
   }
+  const out = deps.out ?? ((s: string) => process.stdout.write(s));
   const createIssue = deps.createIssue ?? defaultCreateIssue();
   try {
     const next = fileItem(state, id, createIssue);
-    saveState(next, deps);
+    commit(next, deps);
+    const url = next.untracked?.find((i) => i.id === id)?.filedAs;
+    out(`Filed #${id}${url ? ` → ${url}` : ""}.\n`);
     return 0;
   } catch (e) {
     console.error(`flow-untracked: ${(e as Error).message}`);
-    // A flow-create-issue failure carries its child exit code structurally
-    // (CreateIssueError.exitCode) rather than a message-string prefix — a
-    // rejected body (exit 3) is distinct from any other gh/Issues-surface
-    // failure (exit 1). Unknown id stays a bad-args case (exit 2, matching
-    // `drop`'s contract), routed on the plain-Error message prefix.
-    if (e instanceof CreateIssueError) {
-      return e.exitCode === 3 ? 3 : 1;
-    }
-    const message = (e as Error).message;
-    return message.startsWith("no untracked item") ? 2 : 1;
+    return failureExitCode(e);
   }
 }
 
 function runDrop(argv: string[], deps: Deps): number {
-  const id = parseId(argv);
+  const out = deps.out ?? ((s: string) => process.stdout.write(s));
+  const all = argv[0] === "--all";
+  const id = all ? 0 : parseId(argv);
   if (typeof id !== "number") {
     console.error(`flow-untracked: ${id.error}`);
-    console.error("usage: flow-untracked drop <id>");
+    console.error("usage: flow-untracked drop <id> | --all");
     return 2;
   }
   const state = loadState(deps);
@@ -458,9 +580,20 @@ function runDrop(argv: string[], deps: Deps): number {
     console.error("flow-untracked: no state file for this pipeline");
     return 2;
   }
+  if (all) {
+    const r = dropAll(state, deps.now);
+    if (r.dropped.length > 0) commit(r.state, deps);
+    out(
+      r.dropped.length > 0
+        ? `Dropped ${r.dropped.map((n) => `#${n}`).join(", ")}.\n`
+        : "flow-untracked: no open items to drop\n",
+    );
+    return 0;
+  }
   try {
     const next = dropItem(state, id, deps.now);
-    saveState(next, deps);
+    commit(next, deps);
+    out(`Dropped #${id}.\n`);
     return 0;
   } catch (e) {
     console.error(`flow-untracked: ${(e as Error).message}`);
@@ -473,20 +606,181 @@ function runRender(argv: string[], deps: Deps): number {
   if ("error" in parsed) {
     console.error(`flow-untracked: ${parsed.error}`);
     console.error(
-      "usage: flow-untracked render --format gate|markdown [--unfiled-only]",
+      "usage: flow-untracked render --format gate|markdown [--unfiled-only] [--uncapped]",
     );
     return 2;
   }
   const out = deps.out ?? ((s: string) => process.stdout.write(s));
   const state = loadState(deps);
+  // `after-merge` items already render under MANUAL ACTION: after merge:.
   const items = (state?.untracked ?? []).filter(
     (i) =>
-      i.droppedAt === undefined &&
-      (!parsed.unfiledOnly || i.filedAs === undefined),
+      i.source !== "after-merge" &&
+      (parsed.unfiledOnly ? isOpenItem(i) : i.droppedAt === undefined),
   );
+  const opts = { uncapped: parsed.uncapped };
   const lines =
-    parsed.format === "gate" ? renderGate(items) : renderMarkdown(items);
+    parsed.format === "gate"
+      ? renderGate(items, opts)
+      : renderMarkdown(items, opts);
   if (lines.length > 0) out(lines.join("\n") + "\n");
+  return 0;
+}
+
+function runDone(argv: string[], deps: Deps): number {
+  const out = deps.out ?? ((s: string) => process.stdout.write(s));
+  const all = argv[0] === "--all";
+  const id = all ? 0 : parseId(argv);
+  if (typeof id !== "number") {
+    console.error(`flow-untracked: ${id.error}`);
+    console.error("usage: flow-untracked done <id> | --all");
+    return 2;
+  }
+  const state = loadState(deps);
+  if (!state) {
+    console.error("flow-untracked: no state file for this pipeline");
+    return 2;
+  }
+  try {
+    const r = doneItem(state, all ? "all" : id, deps.now);
+    if (r.done.length > 0) commit(r.state, deps);
+    out(
+      r.done.length > 0
+        ? `Marked ${r.done.map((n) => `#${n}`).join(", ")} done.\n`
+        : "flow-untracked: no open manual items to mark done\n",
+    );
+    return 0;
+  } catch (e) {
+    console.error(`flow-untracked: ${(e as Error).message}`);
+    return 2;
+  }
+}
+
+function runLaunch(argv: string[], deps: Deps): number {
+  const out = deps.out ?? ((s: string) => process.stdout.write(s));
+  const id = parseId(argv);
+  const usage =
+    "usage: flow-untracked launch <id> [--model <m>] [--effort <e>]";
+  if (typeof id !== "number") {
+    console.error(`flow-untracked: ${id.error}`);
+    console.error(usage);
+    return 2;
+  }
+  const opts: { model?: string; effort?: string } = {};
+  for (let i = 1; i < argv.length; i += 2) {
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error(`flow-untracked: ${argv[i]} requires a value`);
+      console.error(usage);
+      return 2;
+    }
+    if (argv[i] === "--model") opts.model = value;
+    else if (argv[i] === "--effort") opts.effort = value;
+    else {
+      console.error(`flow-untracked: unknown flag: ${argv[i]}`);
+      console.error(usage);
+      return 2;
+    }
+  }
+  const state = loadState(deps);
+  if (!state) {
+    console.error("flow-untracked: no state file for this pipeline");
+    return 2;
+  }
+  try {
+    const r = launchItem(state, id, opts, {
+      spawnLaunch: deps.spawnLaunch ?? defaultSpawnLaunch(),
+      env: deps.env,
+    });
+    commit(r.state, deps);
+    out(`Launched #${id} as flow:${r.slug}.\n`);
+    return 0;
+  } catch (e) {
+    console.error(`flow-untracked: ${(e as Error).message}`);
+    return (e as Error).message.startsWith("no untracked item") ? 2 : 1;
+  }
+}
+
+function runVerdict(argv: string[], deps: Deps): number {
+  const out = deps.out ?? ((s: string) => process.stdout.write(s));
+  if (!argv.includes("--json")) {
+    console.error("usage: flow-untracked verdict --json");
+    return 2;
+  }
+  const state = loadState(deps);
+  if (!state) {
+    console.error("flow-untracked: no state file for this pipeline");
+    return 2;
+  }
+  out(verdictJson(state) + "\n");
+  return 0;
+}
+
+function runSeedMerge(argv: string[], deps: Deps): number {
+  const out = deps.out ?? ((s: string) => process.stdout.write(s));
+  const paths: Record<string, string> = {};
+  for (let i = 0; i < argv.length; i += 2) {
+    const value = argv[i + 1];
+    if (
+      ![
+        "--after-merge-file",
+        "--followups-jsonl",
+        "--followups-block-file",
+      ].includes(argv[i]) ||
+      value === undefined ||
+      value.startsWith("--")
+    ) {
+      console.error(`flow-untracked: bad seed-merge argument: ${argv[i]}`);
+      console.error(
+        "usage: flow-untracked seed-merge [--after-merge-file <p>] [--followups-jsonl <p>] [--followups-block-file <p>]",
+      );
+      return 2;
+    }
+    paths[argv[i]] = value;
+  }
+  const state = loadState(deps);
+  if (!state) {
+    console.error("flow-untracked: no state file for this pipeline");
+    return 2;
+  }
+  const read = deps.readFileFn ?? readTextOrNull;
+  const text = (flag: string): string =>
+    paths[flag] === undefined ? "" : (read(paths[flag]) ?? "");
+  const followupEntries: Array<{
+    command: string;
+    reason: string;
+    auto?: boolean;
+  }> = [];
+  for (const line of text("--followups-jsonl").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const e = JSON.parse(line) as Record<string, unknown>;
+      if (typeof e.command === "string") {
+        followupEntries.push({
+          command: e.command,
+          reason: typeof e.reason === "string" ? e.reason : "",
+          auto: e.auto === true,
+        });
+      }
+    } catch {
+      // a torn JSONL line must not block the merge path
+    }
+  }
+  const seeds = mergeSeedEntries({
+    afterMerge: text("--after-merge-file")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean),
+    followupEntries,
+    followupsBlock: text("--followups-block-file"),
+  });
+  const r = applyMergeSeeds(state, seeds, deps.now);
+  if (r.added.length > 0) commit(r.state, deps);
+  out(
+    `flow-untracked: seeded ${r.added.length} item(s) from merge${
+      r.added.length > 0 ? ` (${r.added.map((n) => `#${n}`).join(", ")})` : ""
+    }\n`,
+  );
   return 0;
 }
 
@@ -495,7 +789,7 @@ function runRender(argv: string[], deps: Deps): number {
 export function run(argv: string[], deps: Deps = {}): number {
   if (argv.length === 0) {
     console.error(
-      "flow-untracked: subcommand is required (add | list | file | drop | render)",
+      "flow-untracked: subcommand is required (add | list | file | drop | done | launch | verdict | seed-merge | render)",
     );
     return 2;
   }
@@ -509,6 +803,14 @@ export function run(argv: string[], deps: Deps = {}): number {
       return runFile(rest, deps);
     case "drop":
       return runDrop(rest, deps);
+    case "done":
+      return runDone(rest, deps);
+    case "launch":
+      return runLaunch(rest, deps);
+    case "verdict":
+      return runVerdict(rest, deps);
+    case "seed-merge":
+      return runSeedMerge(rest, deps);
     case "render":
       return runRender(rest, deps);
     default:

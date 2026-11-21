@@ -4,10 +4,14 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkpointDir } from "./checkpoint-freshness";
 import {
+  markPauseConsumed,
   parsePauseSlots,
   readLastPause,
   recordLastPause,
+  slotItems,
 } from "./pause-capture";
+import { render } from "../flow-gate-summary";
+import { closeVerdict } from "./close-verdict";
 import { writeState, type PipelineState } from "./state";
 
 let dir: string;
@@ -143,5 +147,97 @@ describe("recordLastPause and readLastPause", () => {
     fs.mkdirSync(path.dirname(file()), { recursive: true });
     fs.writeFileSync(file(), "{broken");
     expect(readLastPause("demo", dir)).toBeNull();
+  });
+});
+
+describe("gate-grammar rows", () => {
+  const merged = (untracked: string, items = [{ id: 1 }]) => {
+    const st = state({
+      phase: "merging",
+      untracked: items.map((i) => ({
+        id: i.id,
+        title: "t",
+        source: "x",
+        at: "t",
+      })),
+    });
+    return render({
+      status: "merged",
+      prUrl: "https://github.com/o/r/pull/9",
+      slug: "demo",
+      tldr: "Shipped the thing.",
+      lens: "pm",
+      untrackedBlock: untracked,
+      afterMergeItems: ["run flow ls"],
+      verdict: closeVerdict(st, { phase: "merged" }),
+    });
+  };
+
+  it("parses a real merged render's tldr, untracked, manual action, next action and window", () => {
+    const parsed = parsePauseSlots(
+      merged("  - #1 a bug (reply: file #1 / drop #1 / launch #1)"),
+    );
+    expect(parsed).toMatchObject({
+      tldr: "Shipped the thing.",
+      window: "✗ not ready — 1 item undecided",
+    });
+    expect(parsed?.untracked).toContain("#1 a bug");
+    expect(parsed?.manualAction).toContain("run flow ls");
+    expect(parsed?.nextAction).toContain("flow done demo");
+    expect(parsed?.nextAction).not.toContain("MERGED");
+  });
+
+  it("does not read ordinary lower-case prose as a slot", () => {
+    expect(parsePauseSlots("Untracked: nothing\nNext action: none")).toBeNull();
+  });
+
+  it("round-trips a gate-sourced record and marks it consumed", () => {
+    writeState(state({ phase: "merged" }), dir);
+    recordLastPause("demo", "merged", merged("", []), dir, { source: "gate" });
+    expect(readLastPause("demo", dir)).toMatchObject({
+      source: "gate",
+      window: "✓ safe to close — nothing recorded as open",
+    });
+    markPauseConsumed("demo", dir);
+    expect(readLastPause("demo", dir)?.consumed).toBe(true);
+  });
+});
+
+describe("slotItems", () => {
+  it("returns bullet lines without a #N id and skips sentinels and counts", () => {
+    const slot = [
+      "- serialize parallel test suites",
+      "* second idea",
+      "- #3 already recorded",
+      "5 findings fixed, 0 deferred",
+      "checkpointed: saved",
+      "GATED: https://x/pull/1",
+      "- none",
+      "- —",
+      "- n/a",
+    ].join("\n");
+    expect(slotItems(slot)).toEqual([
+      "serialize parallel test suites",
+      "second idea",
+    ]);
+  });
+
+  it("returns nothing for an absent slot", () => {
+    expect(slotItems(undefined)).toEqual([]);
+  });
+
+  it("records a single item written inline on the label line", () => {
+    const parsed = parsePauseSlots(
+      "**TLDR:** answered.\n**Untracked:** serialize parallel test suites\n\n**Next action:** reply file #4",
+    );
+    expect(slotItems(parsed?.untracked)).toEqual([
+      "serialize parallel test suites",
+    ]);
+  });
+
+  it("skips a lone inline none, count line, or numbered item", () => {
+    expect(slotItems("none — #1 filed as flow#1091")).toEqual([]);
+    expect(slotItems("5 findings fixed, 0 deferred")).toEqual([]);
+    expect(slotItems("#4 serialize parallel test suites")).toEqual([]);
   });
 });

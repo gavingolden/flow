@@ -80,6 +80,13 @@ import {
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { finalizePhase } from "./lib/phase-advance";
 import {
+  closeVerdict,
+  isOpenItem,
+  windowLine,
+  type CloseVerdict,
+} from "./lib/close-verdict";
+import { recordLastPause } from "./lib/pause-capture";
+import {
   classifyAllShellOn,
   findFlowMergeGuardAskEntry,
   personalAskEntryMessage,
@@ -210,6 +217,14 @@ export type GateSummaryInputs = {
    * call omits it and gets no line.
    */
   mergeRuleHint?: string;
+  /**
+   * The close-readiness verdict for this render's target phase. `run()`
+   * computes it from state (the merged block renders while state is still
+   * `merging`, so it passes the `--status` phase); absent for an unreadable
+   * state or a direct `render()` call, in which case no WINDOW row renders and
+   * merged/cancelled keep their literal NEXT ACTION.
+   */
+  verdict?: CloseVerdict;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -777,6 +792,31 @@ export function whyForReason(reason: string | undefined): string {
  * one per array entry, so the numbered steps land on their own lines
  * once `lines` is newline-joined.
  */
+// The `WINDOW:` row sits directly above NEXT ACTION on the four terminal
+// renders that carry a close verdict; omitted when no verdict was computed.
+function pushWindowRow(
+  lines: string[],
+  verdict: CloseVerdict | undefined,
+): void {
+  const row = verdict ? windowLine(verdict) : "";
+  if (row) lines.push(row);
+}
+
+// merged/cancelled NEXT ACTION from the verdict's steps: one step inline, two
+// or more as numbered steps (Step contract), the last always `flow done <slug>`.
+function stepsNextAction(
+  verdict: CloseVerdict | undefined,
+  fallback: string,
+): string {
+  const steps = verdict?.steps ?? [];
+  if (steps.length === 0) return fallback;
+  if (steps.length === 1) return steps[0];
+  return [
+    "Decide the open items, then close the window.",
+    ...steps.map((s, i) => `  ${i + 1}. ${s}`),
+  ].join("\n");
+}
+
 function pushNextAction(lines: string[], text: string): void {
   const parts = text.split("\n");
   lines.push(`NEXT ACTION: ${parts[0]}`);
@@ -862,7 +902,11 @@ function renderMerged(inputs: GateSummaryInputs): string {
     );
     appendFollowups(lines, inputs.deferredBlock);
   }
-  lines.push("NEXT ACTION: none (post-merge cleanup already ran)");
+  pushWindowRow(lines, inputs.verdict);
+  pushNextAction(
+    lines,
+    stepsNextAction(inputs.verdict, "none (post-merge cleanup already ran)"),
+  );
   pushTldr(lines, inputs.tldr);
   lines.push("MERGED");
   return lines.join("\n");
@@ -921,12 +965,14 @@ function renderGated(inputs: GateSummaryInputs): string {
     lines.push(...buildUntracked(inputs.untrackedBlock));
     if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
     pushCleanup(lines, inputs.cleanup, pm);
+    pushWindowRow(lines, inputs.verdict);
     lines.push(
       `NEXT ACTION: tick the items above, then: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}`,
     );
   } else {
     const why = oneLine(inputs.why);
     if (why) lines.push(`WHY: ${why}`);
+    pushWindowRow(lines, inputs.verdict);
     lines.push(
       `NEXT ACTION: tick each step once validated, then run: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}`,
     );
@@ -976,6 +1022,7 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
   }
   pushCleanup(lines, inputs.cleanup, pm);
   if (!pm) appendFollowups(lines, inputs.deferredBlock);
+  pushWindowRow(lines, inputs.verdict);
   pushNextAction(lines, nextActionForReason(inputs.reason));
   const hint = oneLine(inputs.mergeRuleHint);
   if (hint) lines.push(hint);
@@ -1047,7 +1094,8 @@ function renderCancelled(inputs: GateSummaryInputs): string {
     const why = oneLine(inputs.why);
     if (why) lines.push(`WHY: ${why}`);
   }
-  lines.push("NEXT ACTION: none");
+  pushWindowRow(lines, inputs.verdict);
+  pushNextAction(lines, stepsNextAction(inputs.verdict, "none"));
   // No appendFollowups call on this path — cleanup sits directly between
   // NEXT ACTION and the sentinel here, not before a FOLLOW-UPS block.
   pushCleanup(lines, inputs.cleanup, pm);
@@ -1245,6 +1293,25 @@ function mergeRuleHintFor(
   return `If this pipeline was launched before flow shipped its own merge rule, \`flow feature resume ${slug || "<slug>"}\` relaunches it with the rule; replying \`merge #${pr}\` also finishes it.`;
 }
 
+// Appends ` — reply done #N` to an after-merge line that matches an open
+// seeded ledger item (`flow-untracked seed-merge` titles them `after merge: …`).
+function replyHintAfterMerge(
+  items: string[],
+  state: ReturnType<typeof readState>,
+): string[] {
+  const open = (state?.untracked ?? []).filter(
+    (i) => i.source === "after-merge" && isOpenItem(i),
+  );
+  if (open.length === 0) return items;
+  return items.map((raw) => {
+    const text = stripBullet(raw.trim())
+      .replace(/^After merge:\s*/i, "")
+      .trim();
+    const hit = open.find((i) => i.title === `after merge: ${text}`);
+    return hit ? `${raw.replace(/\s+$/, "")} — reply done #${hit.id}` : raw;
+  });
+}
+
 export function run(
   argv: string[],
   opts?: {
@@ -1306,6 +1373,18 @@ export function run(
     tldr = clamped.text;
   }
   const untrackedBlock = readFileOrEmpty(parsed.untrackedFile);
+  const targetPhaseForVerdict = TERMINAL_PHASE_BY_STATUS[parsed.status];
+  const verdictState =
+    resolvedSlug !== null && targetPhaseForVerdict !== null
+      ? readState(resolvedSlug, opts?.stateDir)
+      : null;
+  const verdict =
+    verdictState !== null && targetPhaseForVerdict !== null
+      ? closeVerdict(verdictState, {
+          phase: targetPhaseForVerdict,
+          gatedChecks: validationItems.filter((i) => i.trim() !== "").length,
+        })
+      : undefined;
   const block = render({
     status: parsed.status,
     prUrl: parsed.prUrl,
@@ -1314,10 +1393,11 @@ export function run(
     reason: parsed.reason,
     tldr,
     validationItems,
-    afterMergeItems,
+    afterMergeItems: replyHintAfterMerge(afterMergeItems, verdictState),
     needsInstallItems,
     signoff,
     deferredBlock,
+    verdict,
     worktree: parsed.worktree,
     planFile: parsed.planFile,
     echoProse: parsed.echoProse,
@@ -1368,6 +1448,14 @@ export function run(
       process.stderr.write(
         `flow-gate-summary: not finalizing phase to '${targetPhase}' (${result.reason})\n`,
       );
+    }
+    // The block is Bash tool output, not assistant text, so the turn-end hook
+    // would otherwise see no status block for this turn. Record it ourselves
+    // (source "gate") so the hook can treat it as this turn's block.
+    if (result.advanced && resolvedSlug !== null) {
+      recordLastPause(resolvedSlug, targetPhase, block, opts?.stateDir, {
+        source: "gate",
+      });
     }
     // Best-effort history record of the outcome (plus a snapshot of the run's
     // artifacts while the worktree still exists). Gated on `result.advanced`

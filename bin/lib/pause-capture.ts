@@ -25,9 +25,14 @@ export type PauseSlots = {
   manualAction?: string;
   untracked?: string;
   nextAction?: string;
+  window?: string;
+  /** `"gate"` when `flow-gate-summary` wrote the record from its own render. */
+  source?: "gate";
+  /** Set once the turn-end hook has treated this record as that turn's block. */
+  consumed?: boolean;
 };
 
-type Parsed = Omit<PauseSlots, "phase" | "at">;
+type Parsed = Omit<PauseSlots, "phase" | "at" | "source" | "consumed">;
 
 const SLOT_KEYS: Record<string, keyof Parsed> = {
   tldr: "tldr",
@@ -36,10 +41,26 @@ const SLOT_KEYS: Record<string, keyof Parsed> = {
   "manual action": "manualAction",
   untracked: "untracked",
   "next action": "nextAction",
+  window: "window",
 };
 
 const SLOT_LINE =
-  /^\s*(?:[-*]\s+)?\*\*(TLDR|Unsolved|Needs attention|Manual action|Untracked|Next action):\*\*\s*(.*)$/i;
+  /^\s*(?:[-*]\s+)?\*\*(TLDR|Unsolved|Needs attention|Manual action|Untracked|Next action|Window):\*\*\s*(.*)$/i;
+// `flow-gate-summary`'s upper-case rows: case-sensitive and column 0, so
+// ordinary prose like "Untracked: …" never reads as a slot.
+const GATE_ROW =
+  /^(TLDR|NEXT ACTION|UNTRACKED|MANUAL ACTION|NEEDS ATTENTION|WINDOW):\s*(.*)$/;
+
+// Gate rows that are not slots (and the sentinel line) end the slot above
+// them, so `STATUS:` / `PR:` after a leading TLDR and a trailing sentinel
+// never fold into a slot body.
+const GATE_BREAK =
+  /^(?:(?:STATUS|PR|WHY|CLEANUP|FOLLOW-UPS):|MERGED$|cancelled$|GATED:|NEEDS HUMAN:)/;
+
+function matchSlot(line: string): [string, string] | null {
+  const m = SLOT_LINE.exec(line) ?? GATE_ROW.exec(line);
+  return m ? [m[1].toLowerCase(), m[2]] : null;
+}
 const HEADING_LINE = /^\s{0,3}#{1,6}\s/;
 const SLOT_CHAR_LIMIT = 2000;
 
@@ -48,7 +69,7 @@ export function parsePauseSlots(text: string): Parsed | null {
   const lines = text.split("\n");
   let start = 0;
   lines.forEach((l, i) => {
-    if (SLOT_LINE.exec(l)?.[1].toLowerCase() === "tldr") start = i;
+    if (matchSlot(l)?.[0] === "tldr") start = i;
   });
   const out: Parsed = {};
   let current: keyof Parsed | null = null;
@@ -59,12 +80,12 @@ export function parsePauseSlots(text: string): Parsed | null {
     if (body !== "") out[current] = body;
   };
   for (const line of lines.slice(start)) {
-    const m = SLOT_LINE.exec(line);
+    const m = matchSlot(line);
     if (m) {
       flush();
-      current = SLOT_KEYS[m[1].toLowerCase()];
-      buf = [m[2]];
-    } else if (HEADING_LINE.test(line)) {
+      current = SLOT_KEYS[m[0]];
+      buf = [m[1]];
+    } else if (HEADING_LINE.test(line) || GATE_BREAK.test(line)) {
       flush();
       current = null;
       buf = [];
@@ -74,6 +95,37 @@ export function parsePauseSlots(text: string): Parsed | null {
   }
   flush();
   return out.tldr === undefined && out.nextAction === undefined ? null : out;
+}
+
+/**
+ * The list items of a slot body that the ledger can record: `- ` / `* `
+ * bullet lines with no `#N` id (numbered ones are already recorded), skipping
+ * `none` / `—` / `n/a`, plus a lone un-bulleted line (an item written inline
+ * on the label). Otherwise bullet-only on purpose — the parser folds count
+ * lines, `checkpointed:` banners and sentinels into the last slot's body.
+ */
+export function slotItems(slot: string | undefined): string[] {
+  if (!slot) return [];
+  const recordable = (text: string): boolean =>
+    !/(^|\s)#\d+\b/.test(text) &&
+    !/^(none\b|—|-$|n\/a\b)/i.test(text) &&
+    !/^\d+\s.*\b(fixed|deferred|filed|dropped)\b/i.test(text) &&
+    !/^(checkpointed:|GATED:|MERGED$|NEEDS HUMAN:|cancelled$)/.test(text);
+  const lines = slot.split("\n").filter((l) => l.trim() !== "");
+  // A single un-bulleted line is the item written inline on the label line
+  // (`**Untracked:** <idea>`), the shape a one-item slot usually takes.
+  if (lines.length === 1 && !/^\s*[-*]\s/.test(lines[0])) {
+    const text = lines[0].trim();
+    return recordable(text) ? [text] : [];
+  }
+  const out: string[] = [];
+  for (const line of lines) {
+    const m = /^\s*[-*]\s+(.+)$/.exec(line);
+    if (!m) continue;
+    const text = m[1].trim();
+    if (recordable(text)) out.push(text);
+  }
+  return out;
 }
 
 function lastPausePath(slug: string, dir: string): string {
@@ -90,6 +142,7 @@ export function recordLastPause(
   phase: string,
   message: string | undefined,
   dir: string = flowStateDir(),
+  opts: { source?: "gate" } = {},
 ): void {
   try {
     if (!message) return;
@@ -99,12 +152,35 @@ export function recordLastPause(
     if (!state || state.phase !== phase) return;
     const file = lastPausePath(slug, dir);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const record: PauseSlots = { phase, at: phaseEnteredAt(state), ...slots };
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`);
-    fs.renameSync(tmp, file);
+    const record: PauseSlots = {
+      phase,
+      at: phaseEnteredAt(state),
+      ...slots,
+      ...(opts.source ? { source: opts.source } : {}),
+    };
+    writeRecord(file, record);
   } catch {
     // the hook's decision never depends on this
+  }
+}
+
+function writeRecord(file: string, record: PauseSlots): void {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`);
+  fs.renameSync(tmp, file);
+}
+
+/** Marks the saved record consumed so a later block-less reply is not mistaken for it. Never throws. */
+export function markPauseConsumed(
+  slug: string,
+  dir: string = flowStateDir(),
+): void {
+  try {
+    const record = readLastPause(slug, dir);
+    if (!record) return;
+    writeRecord(lastPausePath(slug, dir), { ...record, consumed: true });
+  } catch {
+    // best-effort
   }
 }
 
@@ -115,6 +191,7 @@ const OPTIONAL_STRINGS: Array<keyof Parsed> = [
   "manualAction",
   "untracked",
   "nextAction",
+  "window",
 ];
 
 /** The saved block, or null when none exists or it no longer matches the state's current phase and phase-entered time. */
@@ -127,6 +204,8 @@ export function readLastPause(
       fs.readFileSync(lastPausePath(slug, dir), "utf8"),
     ) as PauseSlots;
     if (typeof v?.phase !== "string" || typeof v.at !== "string") return null;
+    if (v.consumed !== undefined && typeof v.consumed !== "boolean")
+      return null;
     if (
       OPTIONAL_STRINGS.some(
         (k) => v[k] !== undefined && typeof v[k] !== "string",

@@ -34,6 +34,7 @@ import {
   readState,
   type PipelineState,
 } from "./state";
+import { closeVerdict } from "./close-verdict";
 import { deleteTurnTracking } from "./stop-turn-tracking";
 import { deleteCheckpointDir } from "./checkpoint-freshness";
 import { plainTerminate } from "./launcher";
@@ -56,6 +57,11 @@ import {
 
 const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
 
+// Phases where an open ledger item means the window still holds a decision.
+// In-flight phases are excluded on purpose: `flow done` on a reviewing
+// pipeline is the documented cancel path, and pr-review seeds items mid-review.
+const GUARDED_PHASES = new Set(["merged", "cancelled", "gated", "needs-human"]);
+
 /**
  * Per-slug `spawnSync` backstop for `defaultRegistryReap`, sized just over
  * `runRegistryReap`'s own 30s `DEFAULT_REGISTRY_DEADLINE_MS`
@@ -76,6 +82,8 @@ export type DoneOptions = {
   merged?: boolean;
   orphans?: boolean;
   yes?: boolean;
+  /** Bypass the open-items guard: close windows that still hold undecided items. */
+  force?: boolean;
   /** plainTerminate seam (test only) — defaults to the real SIGTERM path. */
   terminate?: typeof plainTerminate;
   /**
@@ -223,6 +231,60 @@ function safeRegistryReap(slug: string, options: DoneOptions): void {
   }
 }
 
+const GUARD_LIST_MAX = 5;
+
+/**
+ * Whether closing `state` would silently discard undecided ledger items: only
+ * at merged / cancelled / gated / needs-human, only for feature windows.
+ * `summary` reads `N undecided item(s) (#1, #2 …)`, naming at most 5 ids.
+ */
+export function openItemsGuard(state: PipelineState): {
+  blocked: boolean;
+  summary: string;
+} {
+  if (!GUARDED_PHASES.has(state.phase)) return { blocked: false, summary: "" };
+  const v = closeVerdict(state);
+  if (v.kind === "n/a" || v.openItems.length === 0) {
+    return { blocked: false, summary: "" };
+  }
+  const n = v.openItems.length;
+  const ids = v.openItems.slice(0, GUARD_LIST_MAX).map((i) => `#${i.id}`);
+  const more = n > GUARD_LIST_MAX ? ` +${n - GUARD_LIST_MAX} more` : "";
+  return {
+    blocked: true,
+    summary: `${n} undecided item${n === 1 ? "" : "s"} (${ids.join(", ")}${more})`,
+  };
+}
+
+/**
+ * The one pre-`sweep()` filter for multi-slug, `--merged` and `--merged
+ * --orphans`: drops windows holding undecided items (unless `--force`) and
+ * names them, so a sweep can never silently discard an unfiled item.
+ */
+function withoutUndecided(
+  states: PipelineState[],
+  options: DoneOptions,
+  applies: (s: PipelineState) => boolean = () => true,
+): PipelineState[] {
+  if (options.force) return states;
+  const kept: PipelineState[] = [];
+  const skipped: string[] = [];
+  for (const s of states) {
+    const g = applies(s) ? openItemsGuard(s) : { blocked: false, summary: "" };
+    if (g.blocked)
+      skipped.push(
+        `${s.slug} ${g.summary.replace(/^\d+ undecided items? /, "")}`,
+      );
+    else kept.push(s);
+  }
+  if (skipped.length > 0) {
+    console.log(
+      `skipped ${skipped.length} with undecided items: ${skipped.join(", ")}`,
+    );
+  }
+  return kept;
+}
+
 /**
  * CLI shim for `bin/flow`'s `done` verb. Intercepts --help / -h before any
  * tmux query or state read, then parses --merged / --orphans / --yes / -y
@@ -237,6 +299,7 @@ export function runDoneCli(args: string[]): number {
   const merged = args.includes("--merged");
   const orphans = args.includes("--orphans");
   const yes = args.includes("--yes") || args.includes("-y");
+  const force = args.includes("--force");
   const positional = args.filter((a) => !a.startsWith("-"));
   // A sweep flag keeps today's predicate-driven behaviour regardless of how
   // many positional slugs were typed. With no sweep flag, exactly one slug
@@ -245,9 +308,9 @@ export function runDoneCli(args: string[]): number {
   // multi-slug sweep below.
   if (!merged && !orphans) {
     const slugs = dedupe(positional);
-    if (slugs.length > 1) return runDoneMulti(slugs, { yes });
+    if (slugs.length > 1) return runDoneMulti(slugs, { yes, force });
   }
-  return runDone(positional[0], { merged, orphans, yes });
+  return runDone(positional[0], { merged, orphans, yes, force });
 }
 
 /** A slug's registry (`~/.flow/state/procs/<slug>.jsonl`) has at least one
@@ -283,7 +346,7 @@ function dedupe(slugs: string[]): string[] {
  * slugs still close.
  */
 function runDoneMulti(slugs: string[], options: DoneOptions): number {
-  const rows: PipelineState[] = [];
+  let rows: PipelineState[] = [];
   const missing: string[] = [];
   for (const slug of slugs) {
     const state = readState(slug);
@@ -316,6 +379,15 @@ function runDoneMulti(slugs: string[], options: DoneOptions): number {
     // close. The missing warnings above already fired; exit non-zero.
     return 1;
   }
+  const requested = rows.length;
+  rows = withoutUndecided(rows, options);
+  if (rows.length === 0) {
+    console.error(
+      "flow done: nothing closed — decide the undecided items or re-run with --force.",
+    );
+    return 1;
+  }
+  const skippedUndecided = rows.length < requested;
 
   // A declined confirm inside sweep() aborts the whole batch (logs "aborted",
   // returns 0). Treat that as a clean abort regardless of the missing slugs —
@@ -332,7 +404,7 @@ function runDoneMulti(slugs: string[], options: DoneOptions): number {
   );
   if (code !== 0) return code;
   if (!proceeded) return 0; // declined → clean abort
-  return missing.length > 0 ? 1 : 0;
+  return missing.length > 0 || skippedUndecided ? 1 : 0;
 }
 
 export function runDone(
@@ -389,6 +461,26 @@ export function runDone(
     return 0;
   }
 
+  const guard =
+    recordedState && !options.force
+      ? openItemsGuard(recordedState)
+      : { blocked: false, summary: "" };
+  if (guard.blocked && options.yes) {
+    console.error(
+      `flow done: ${name} has ${guard.summary} — reply file all / drop all in its window, or re-run with --force`,
+    );
+    return 1;
+  }
+  if (guard.blocked) {
+    console.log(`'${name}' still has ${guard.summary}:`);
+    const open = closeVerdict(recordedState!).openItems;
+    for (const i of open.slice(0, GUARD_LIST_MAX)) {
+      console.log(`  #${i.id} ${i.title}`);
+    }
+    if (open.length > GUARD_LIST_MAX) {
+      console.log(`  (+${open.length - GUARD_LIST_MAX} more)`);
+    }
+  }
   if (!options.yes) {
     if (!confirm(`close pipeline '${name}'${confirmSuffix(waiting)}?`)) {
       console.log(dim("flow done: aborted — nothing closed"));
@@ -449,11 +541,13 @@ export function runDone(
 }
 
 function runDoneMerged(options: DoneOptions): number {
-  const states = listStates().filter((s) => TERMINAL_PHASES.has(s.phase));
-  if (states.length === 0) {
+  const all = listStates().filter((s) => TERMINAL_PHASES.has(s.phase));
+  if (all.length === 0) {
     console.log("flow done: no merged or cancelled pipelines to close.");
     return 0;
   }
+  const states = withoutUndecided(all, options);
+  if (states.length === 0) return 0;
   return sweep(states, options, (s) => `  ${s.slug} (${s.phase})`);
 }
 
@@ -509,7 +603,17 @@ function runDoneCombined(options: DoneOptions): number {
     return 0;
   }
 
-  const states = [...reasons.values()].map((r) => r.state);
+  const guarded = new Set(
+    [...reasons.values()]
+      .filter((r) => r.tag !== "orphan")
+      .map((r) => r.state.slug),
+  );
+  const states = withoutUndecided(
+    [...reasons.values()].map((r) => r.state),
+    options,
+    (s) => guarded.has(s.slug),
+  );
+  if (states.length === 0) return 0;
   return sweep(states, options, (s) => {
     const pr = s.pr ? ` #${s.pr}` : "";
     return `  ${s.slug} (${s.phase}${pr}) [${reasons.get(s.slug)!.tag}]`;

@@ -15,6 +15,7 @@ import {
   whyForReason,
   type CleanupInput,
 } from "./flow-gate-summary";
+import { readLastPause } from "./lib/pause-capture";
 import { readState, writeState, type PipelineState } from "./lib/state";
 import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
 import { readHistoryEvents, snapshotDir } from "./lib/checkpoint-history";
@@ -3265,5 +3266,128 @@ describe("after-merge rows", () => {
         render({ ...base, afterMergeItems: [], needsInstallItems: [] }),
       ).toBe(render(base));
     }
+  });
+});
+
+describe("close-readiness WINDOW row and exact next steps", () => {
+  const item = (id: number, extra = {}) => ({
+    id,
+    title: `item ${id}`,
+    source: "pr-review",
+    at: "t",
+    ...extra,
+  });
+  const seedState = (phase: string, untracked: unknown[] = []) =>
+    writeState(
+      {
+        slug: "win-slug",
+        phase,
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        untracked,
+      } as PipelineState,
+      tmpRoot,
+    );
+  function capture(args: string[]): string {
+    const original = process.stdout.write.bind(process.stdout);
+    let captured = "";
+    process.stdout.write = ((chunk: unknown) => {
+      captured += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      run([...args, "--slug", "win-slug"], { stateDir: tmpRoot });
+    } finally {
+      process.stdout.write = original;
+    }
+    return captured.trimEnd();
+  }
+
+  it("clean merged while state is still merging reads safe to close with flow done", () => {
+    seedState("merging");
+    const out = capture(["--status", "merged", "--lens", "dev"]);
+    expect(out).toContain(
+      "WINDOW: ✓ safe to close — nothing recorded as open\nNEXT ACTION: flow done win-slug",
+    );
+    expect(finalLine(out)).toBe("MERGED");
+  });
+
+  it("open items render numbered steps whose last is flow done", () => {
+    seedState("merging", [item(1), item(2)]);
+    const out = capture(["--status", "merged", "--lens", "dev"]);
+    expect(out).toContain("WINDOW: ✗ not ready — 2 items undecided");
+    expect(out).toMatch(
+      /NEXT ACTION: .*\n {2}1\. Reply file all.*\n {2}2\. flow done win-slug\nMERGED$/,
+    );
+  });
+
+  it("cancelled carries the row and steps too", () => {
+    seedState("cancelled");
+    const out = capture(["--status", "cancelled", "--lens", "dev"]);
+    expect(out).toContain("WINDOW: ✓ safe to close");
+    expect(out).toContain("NEXT ACTION: flow done win-slug");
+    expect(finalLine(out)).toBe("cancelled");
+  });
+
+  it("gated and needs-human carry a WINDOW row above their unchanged NEXT ACTION", () => {
+    seedState("gating");
+    const gated = capture(["--status", "gated", "--lens", "dev"]);
+    expect(gated).toMatch(
+      /WINDOW: ✗ not ready — PR not merged; 0 checks to tick\nNEXT ACTION: tick each step/,
+    );
+    seedState("implementing");
+    const stalled = capture([
+      "--status",
+      "needs-human",
+      "--reason",
+      "ci-hang",
+      "--lens",
+      "dev",
+    ]);
+    expect(stalled).toMatch(
+      /WINDOW: ✗ not ready — pipeline stalled[^\n]*\nNEXT ACTION: /,
+    );
+  });
+
+  it("awaiting-approval has no WINDOW row", () => {
+    seedState("planning");
+    const out = capture(["--status", "awaiting-approval", "--lens", "dev"]);
+    expect(out).not.toContain("WINDOW:");
+  });
+
+  it("omits the row and keeps the literal next action when state is unreadable", () => {
+    const out = render({ status: "merged" });
+    expect(out).not.toContain("WINDOW:");
+    expect(out).toContain("NEXT ACTION: none (post-merge cleanup already ran)");
+  });
+
+  it("appends a done reply hint to an after-merge line matching an open seeded item", () => {
+    seedState("merging", [
+      item(1, {
+        title: "after merge: run flow ls",
+        source: "after-merge",
+        kind: "manual",
+      }),
+    ]);
+    const am = path.join(tmpRoot, "am.txt");
+    fs.writeFileSync(am, "After merge: run flow ls\n");
+    const out = capture([
+      "--status",
+      "merged",
+      "--lens",
+      "pm",
+      "--after-merge-items-file",
+      am,
+    ]);
+    expect(out).toContain("after merge: run flow ls — reply done #1");
+  });
+
+  it("records its own render as the gate-sourced last pause after finalizing", () => {
+    seedState("merging", [item(1)]);
+    capture(["--status", "merged", "--lens", "pm", "--tldr", "Shipped it."]);
+    const rec = readLastPause("win-slug", tmpRoot);
+    expect(rec?.source).toBe("gate");
+    expect(rec?.phase).toBe("merged");
+    expect(rec?.window).toBe("✗ not ready — 1 item undecided");
   });
 });
