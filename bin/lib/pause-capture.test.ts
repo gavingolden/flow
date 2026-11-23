@@ -235,6 +235,20 @@ describe("slotItems", () => {
     ]);
   });
 
+  it("keeps an item that mentions a PR or issue number in prose", () => {
+    expect(slotItems("- follow up on #1084 race condition")).toEqual([
+      "follow up on #1084 race condition",
+    ]);
+  });
+
+  it("ignores a count line under a single inline item", () => {
+    expect(
+      slotItems(
+        "serialize parallel test suites\n5 findings fixed, 0 deferred.",
+      ),
+    ).toEqual(["serialize parallel test suites"]);
+  });
+
   it("skips a lone inline none, count line, or numbered item", () => {
     expect(slotItems("none — #1 filed as flow#1091")).toEqual([]);
     expect(slotItems("5 findings fixed, 0 deferred")).toEqual([]);

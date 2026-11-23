@@ -34,7 +34,7 @@ import {
   readState,
   type PipelineState,
 } from "./state";
-import { closeVerdict } from "./close-verdict";
+import { closeVerdict, VERDICT_PHASES } from "./close-verdict";
 import { deleteTurnTracking } from "./stop-turn-tracking";
 import { deleteCheckpointDir } from "./checkpoint-freshness";
 import { plainTerminate } from "./launcher";
@@ -60,7 +60,7 @@ const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
 // Phases where an open ledger item means the window still holds a decision.
 // In-flight phases are excluded on purpose: `flow done` on a reviewing
 // pipeline is the documented cancel path, and pr-review seeds items mid-review.
-const GUARDED_PHASES = new Set(["merged", "cancelled", "gated", "needs-human"]);
+const GUARDED_PHASES = VERDICT_PHASES;
 
 /**
  * Per-slug `spawnSync` backstop for `defaultRegistryReap`, sized just over
@@ -257,8 +257,8 @@ export function openItemsGuard(state: PipelineState): {
 }
 
 /**
- * The one pre-`sweep()` filter for multi-slug, `--merged` and `--merged
- * --orphans`: drops windows holding undecided items (unless `--force`) and
+ * The one pre-`sweep()` filter for multi-slug, `--merged`, `--orphans` and
+ * `--merged --orphans`: drops windows holding undecided items (unless `--force`) and
  * names them, so a sweep can never silently discard an unfiled item.
  */
 function withoutUndecided(
@@ -467,7 +467,7 @@ export function runDone(
       : { blocked: false, summary: "" };
   if (guard.blocked && options.yes) {
     console.error(
-      `flow done: ${name} has ${guard.summary} — reply file all / drop all in its window, or re-run with --force`,
+      `flow done: ${name} has ${guard.summary} — reply file all / drop all (or done all for manual checks) in its window, or re-run with --force (discards them)`,
     );
     return 1;
   }
@@ -482,7 +482,10 @@ export function runDone(
     }
   }
   if (!options.yes) {
-    if (!confirm(`close pipeline '${name}'${confirmSuffix(waiting)}?`)) {
+    const question = guard.blocked
+      ? `close pipeline '${name}' and discard its undecided items${confirmSuffix(waiting)}?`
+      : `close pipeline '${name}'${confirmSuffix(waiting)}?`;
+    if (!confirm(question)) {
       console.log(dim("flow done: aborted — nothing closed"));
       return 0;
     }
@@ -569,11 +572,13 @@ function isOrphan(state: PipelineState, windows: TmuxWindow[]): boolean {
 
 function runDoneOrphans(options: DoneOptions): number {
   const windows = listWindows();
-  const states = listStates().filter((s) => isOrphan(s, windows));
-  if (states.length === 0) {
+  const orphans = listStates().filter((s) => isOrphan(s, windows));
+  if (orphans.length === 0) {
     console.log("flow done: no orphan pipelines to close.");
     return 0;
   }
+  const states = withoutUndecided(orphans, options);
+  if (states.length === 0) return 0;
   return sweep(states, options, (s) => {
     const pr = s.pr ? ` #${s.pr}` : "";
     return `  ${s.slug} (${s.phase}${pr})`;

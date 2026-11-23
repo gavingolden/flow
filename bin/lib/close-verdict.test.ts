@@ -85,6 +85,30 @@ describe("closeVerdict", () => {
     });
   });
 
+  it("does not claim a PR or worktree exists at needs-human", () => {
+    expect(closeVerdict(st("needs-human")).reason).not.toMatch(/PR|worktree/);
+  });
+
+  it("is working while CI or a detached reviewer runs", () => {
+    for (const p of ["ci-wait-pending", "plan-review-pending"]) {
+      expect(closeVerdict(st(p)).kind).toBe("working");
+    }
+  });
+
+  it("offers only the verbs that act on the open items", () => {
+    const manual = closeVerdict(st("merged", [item(1, { kind: "manual" })]))
+      .steps[0];
+    expect(manual).toContain("done all");
+    expect(manual).not.toContain("file all");
+    const work = closeVerdict(st("merged", [item(1)])).steps[0];
+    expect(work).toContain("file all");
+    expect(work).not.toContain("done");
+    const both = closeVerdict(
+      st("merged", [item(1), item(2, { kind: "manual" })]),
+    ).steps[0];
+    expect(both).toContain("file all, done all");
+  });
+
   it("is working at an in-flight phase", () => {
     expect(closeVerdict(st("implementing")).kind).toBe("working");
   });
@@ -129,9 +153,11 @@ describe("badgeShort", () => {
   });
 
   it("values are ASCII and at most 7 columns", () => {
-    for (const v of ["merged?", "cancel?"]) {
-      expect(v.length).toBeLessThanOrEqual(7);
-      expect(/^[\x20-\x7e]+$/.test(v)).toBe(true);
+    for (const v of [
+      badgeShort(st("merged", [item(1)])),
+      badgeShort(st("cancelled", [item(1)])),
+    ]) {
+      expect(v).toMatch(/^[\x20-\x7e]{1,7}$/);
     }
   });
 });

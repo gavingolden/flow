@@ -62,13 +62,12 @@ import {
 } from "./lib/pause-capture";
 import {
   closeVerdict,
+  VERDICT_PHASES,
   verdictWord,
   type CloseVerdict,
 } from "./lib/close-verdict";
-import {
-  defaultPublishBadges,
-  recordTurnEndItems,
-} from "./lib/untracked-verbs";
+import { defaultPublishBadges } from "./lib/untracked-verbs";
+import { recordTurnEndItems } from "./lib/untracked-merge-seed";
 import {
   ORPHAN_GUIDANCE,
   orphanNotice,
@@ -186,13 +185,6 @@ function defaultParsePause(message: string | undefined): PauseSlots | null {
   return slots ? { phase: "", at: "", ...slots } : null;
 }
 
-const VERDICT_PHASES: ReadonlySet<string> = new Set([
-  "merged",
-  "cancelled",
-  "gated",
-  "needs-human",
-]);
-
 /**
  * The hook line for a finished window. Null when the message already carries
  * the helper's `WINDOW:` row naming the same verdict word, or when no verdict
@@ -273,10 +265,15 @@ function closeVerdictHook(
               kind: "work" as const,
             }))
           : []),
-        ...slotItems(fromMessage.manualAction).map((title) => ({
-          title,
-          kind: "manual" as const,
-        })),
+        // At needs-human a Manual action is the stall's own obstacle, cleared
+        // by a bare `done` that never reaches the ledger — recording it would
+        // block `flow done` for an already-cleared stall.
+        ...(state.phase !== "needs-human"
+          ? slotItems(fromMessage.manualAction).map((title) => ({
+              title,
+              kind: "manual" as const,
+            }))
+          : []),
       ];
       if (items.length > 0) {
         const before = new Set((cur.untracked ?? []).map((i) => i.id));

@@ -11,7 +11,12 @@
  */
 import { ALLOWLIST } from "../flow-followups";
 import { stripBullet } from "./gate-summary-rows";
-import type { PipelineState, UntrackedItem } from "./state";
+import {
+  readState,
+  writeState,
+  type PipelineState,
+  type UntrackedItem,
+} from "./state";
 
 export type MergeSeed = {
   title: string;
@@ -23,7 +28,7 @@ export const AFTER_MERGE_PREFIX = "after merge: ";
 const FAILED_PREFIX = "failed follow-up: ";
 // formatVerdict indents the header 2 spaces and its tail lines 12: cap the
 // leading whitespace so a tail line that itself starts "FAIL …" is ignored.
-const FAIL_LINE = /^ {0,3}FAIL\s+(.+?)\s+\(exit \d+\)\s*$/;
+const FAIL_LINE = /^ {0,3}FAIL\s+(.+?)\s+\(exit -?\d+\)\s*$/;
 
 export function mergeSeedEntries(inputs: {
   afterMerge: string[];
@@ -78,4 +83,51 @@ export function applyMergeSeeds(
     added.push(next++);
   }
   return { state: { ...state, untracked: items }, added };
+}
+
+/**
+ * Records un-numbered slot items a finished-window message listed. Dedup is by
+ * normalised title against EVERY existing item (so a re-run, or an idea
+ * already recorded another way, adds nothing). Records only — never files.
+ */
+export function appendRecorded(
+  state: PipelineState,
+  items: Array<{ title: string; kind: "work" | "manual" }>,
+  now: () => string = () => new Date().toISOString(),
+): { state: PipelineState; added: number[] } {
+  const all: UntrackedItem[] = [...(state.untracked ?? [])];
+  const norm = (t: string): string =>
+    t.trim().replace(/\s+/g, " ").toLowerCase();
+  const seen = new Set(all.map((i) => norm(i.title)));
+  let next = all.reduce((m, i) => Math.max(m, i.id), 0) + 1;
+  const added: number[] = [];
+  for (const it of items) {
+    if (seen.has(norm(it.title))) continue;
+    seen.add(norm(it.title));
+    all.push({
+      id: next,
+      title: it.title,
+      source: "turn-end",
+      at: now(),
+      ...(it.kind === "manual" ? { kind: "manual" as const } : {}),
+    });
+    added.push(next++);
+  }
+  return { state: { ...state, untracked: all }, added };
+}
+
+/** The hook's persisted form of `appendRecorded`: read, append, write only when something was added. */
+export function recordTurnEndItems(
+  slug: string,
+  items: Array<{ title: string; kind: "work" | "manual" }>,
+  io: {
+    read: typeof readState;
+    write: typeof writeState;
+  } = { read: readState, write: writeState },
+): PipelineState {
+  const st = io.read(slug);
+  if (!st) throw new Error(`no state for ${slug}`);
+  const r = appendRecorded(st, items);
+  if (r.added.length > 0) io.write(r.state);
+  return r.state;
 }

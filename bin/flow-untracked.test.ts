@@ -8,6 +8,7 @@ import {
   writeState,
   type PipelineState,
 } from "./lib/state";
+import { badgeShort } from "./lib/close-verdict";
 import {
   UNTRACKED_RENDER_CAP,
   addItem,
@@ -635,6 +636,39 @@ describe("run: bulk, done, launch, verdict, seed-merge, render", () => {
       ),
     ).toBe(1);
     expect(readState("s1", dir)!.untracked![0].launchedAs).toBeUndefined();
+  });
+
+  it("launch runs in the pipeline's repo, skips a launched item and refuses a manual one", () => {
+    let s = addItem(base(), { title: "t", source: "x" }, now);
+    s = addItem(s, { title: "m", source: "x", kind: "manual" }, now);
+    seed(s);
+    const cwds: Array<string | undefined> = [];
+    const spawnLaunch = (
+      _argv: string[],
+      _env: NodeJS.ProcessEnv,
+      cwd?: string,
+    ) => {
+      cwds.push(cwd);
+      return { stdout: "flow:new-slug\n", exitCode: 0 };
+    };
+    expect(run(["launch", "1"], deps({ spawnLaunch }))).toBe(0);
+    expect(run(["launch", "1"], deps({ spawnLaunch }))).toBe(0);
+    expect(cwds).toEqual(["/tmp/repo"]);
+    expect(run(["launch", "2"], deps({ spawnLaunch }))).not.toBe(0);
+    expect(cwds).toHaveLength(1);
+  });
+
+  it("mutating verbs republish the tab badge, and a no-op publishes nothing", () => {
+    seed(addItem(base(), { title: "a", source: "x" }, now));
+    const published: PipelineState[] = [];
+    const publishBadges = (s: PipelineState) => {
+      published.push(s);
+    };
+    expect(run(["drop", "--all"], deps({ publishBadges }))).toBe(0);
+    expect(published).toHaveLength(1);
+    expect(badgeShort(published[0])).toBeNull();
+    run(["drop", "--all"], deps({ publishBadges }));
+    expect(published).toHaveLength(1);
   });
 
   it("launch rejects a model word outside the allowed aliases", () => {

@@ -926,6 +926,15 @@ describe("render — cancelled", () => {
     expect(finalLine(out)).toBe("cancelled");
   });
 
+  it("lists recorded untracked items so a drop-all reply touches nothing unseen", () => {
+    const out = render({
+      status: "cancelled",
+      untrackedBlock: "- #1 serialize parallel suites",
+    });
+    expect(out).toContain("UNTRACKED:");
+    expect(out).toContain("#1 serialize parallel suites");
+  });
+
   it("renders without WHY when omitted", () => {
     const out = render({ status: "cancelled" });
     expect(out).toBe(

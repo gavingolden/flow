@@ -1825,6 +1825,23 @@ describe("open-items guard", () => {
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("a");
   });
 
+  it("--orphans skips a dead merged window holding undecided items but closes in-flight orphans", () => {
+    stateMock.listStates.mockReturnValue([
+      withItems("a", "merged", [item(1)]) as never,
+      state({ slug: "o", phase: "implementing" }) as never,
+    ]);
+    stateMock.readState.mockImplementation(
+      (slug: string) =>
+        stateMock.listStates().find((s) => s.slug === slug) ?? null,
+    );
+    expect(runDoneCli(["--orphans", "--yes"])).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("o");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("a");
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "skipped 1 with undecided items: a (#1)",
+    );
+  });
+
   it("--merged --force closes windows with undecided items", () => {
     stateMock.listStates.mockReturnValue([
       withItems("a", "merged", [item(1)]) as never,

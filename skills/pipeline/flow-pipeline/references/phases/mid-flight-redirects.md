@@ -14,7 +14,8 @@ mid-phase. Apply `references/redirect-handling.md`:
   block via `flow-gate-summary --status cancelled --cleanup --why "user
   cancelled mid-flight at $(jq -r .phase ~/.flow/state/$SLUG.json)"
   --tldr "$TLDR" --lens "$(jq -r '.output.lens // "pm"'
-  ~/.flow/config.json 2>/dev/null)"` — which records `phase: cancelled`
+  ~/.flow/config.json 2>/dev/null)"
+  --untracked-file <(flow-untracked render --format gate --unfiled-only --uncapped)` — which records `phase: cancelled`
   itself, only after its block reaches stdout (`checkWorktreeBranch`
   no-ops gracefully against the already-deleted worktree path, so the
   earlier `flow-remove-worktree` does not block the finalize) — then

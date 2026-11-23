@@ -783,15 +783,6 @@ export function whyForReason(reason: string | undefined): string {
   return why;
 }
 
-/**
- * Pushes the NEXT ACTION row onto `lines`. A single-line recipe renders
- * exactly as before: `NEXT ACTION: <text>`. A multi-line recipe (an
- * embedded-newline `<header>\n  1. <step>\n  2. <step>` string — see
- * `references/pause-output-contract.md` `## Step contract`) renders its
- * header on the `NEXT ACTION:` row and every subsequent line verbatim,
- * one per array entry, so the numbered steps land on their own lines
- * once `lines` is newline-joined.
- */
 // The `WINDOW:` row sits directly above NEXT ACTION on the four terminal
 // renders that carry a close verdict; omitted when no verdict was computed.
 function pushWindowRow(
@@ -817,6 +808,15 @@ function stepsNextAction(
   ].join("\n");
 }
 
+/**
+ * Pushes the NEXT ACTION row onto `lines`. A single-line recipe renders
+ * exactly as before: `NEXT ACTION: <text>`. A multi-line recipe (an
+ * embedded-newline `<header>\n  1. <step>\n  2. <step>` string — see
+ * `references/pause-output-contract.md` `## Step contract`) renders its
+ * header on the `NEXT ACTION:` row and every subsequent line verbatim,
+ * one per array entry, so the numbered steps land on their own lines
+ * once `lines` is newline-joined.
+ */
 function pushNextAction(lines: string[], text: string): void {
   const parts = text.split("\n");
   lines.push(`NEXT ACTION: ${parts[0]}`);
@@ -1093,6 +1093,11 @@ function renderCancelled(inputs: GateSummaryInputs): string {
   if (!pm) {
     const why = oneLine(inputs.why);
     if (why) lines.push(`WHY: ${why}`);
+  }
+  // Listed so a `drop all` reply never touches an item the reader cannot
+  // see; omitted when there are none (a cancel usually records nothing).
+  if ((inputs.untrackedBlock ?? "").trim() !== "") {
+    lines.push(...buildUntracked(inputs.untrackedBlock));
   }
   pushWindowRow(lines, inputs.verdict);
   pushNextAction(lines, stepsNextAction(inputs.verdict, "none"));
@@ -1452,7 +1457,14 @@ export function run(
     // The block is Bash tool output, not assistant text, so the turn-end hook
     // would otherwise see no status block for this turn. Record it ourselves
     // (source "gate") so the hook can treat it as this turn's block.
-    if (result.advanced && resolvedSlug !== null) {
+    // A re-render at the phase already reached (resume, a declined override)
+    // is this turn's block too, so it is recorded as well.
+    const sameRun =
+      result.reason === "already-terminal" &&
+      (prNumber === null ||
+        verdictState?.pr === undefined ||
+        verdictState.pr === Number(prNumber));
+    if ((result.advanced || sameRun) && resolvedSlug !== null) {
       recordLastPause(resolvedSlug, targetPhase, block, opts?.stateDir, {
         source: "gate",
       });

@@ -400,8 +400,8 @@ Options:
 
 A window with undecided items (untracked work or manual checks not yet filed,
 dropped or marked done) is not closed silently: '--yes' refuses with the item
-ids unless '--force' is given, and the multi-name, '--merged' and
-'--merged --orphans' sweeps skip those windows and name them.
+ids unless '--force' is given, and the multi-name, '--merged', '--orphans'
+and '--merged --orphans' sweeps skip those windows and name them.
 
 Pass two or more <name>s to close several pipelines in one confirm-once sweep
 (an unknown name warns and forces a non-zero exit while the rest still close).

@@ -1,7 +1,8 @@
 /**
  * The single close-readiness verdict for a feature pipeline window. Every
  * surface (gate block, tab badge, `flow ls`, `flow done`, the turn-end hook,
- * `flow-untracked verdict`) calls `closeVerdict` so none can disagree.
+ * `flow-untracked verdict`) calls `closeVerdict` so none can disagree; the
+ * tab badge (`badgeShort`) is built on it too.
  *
  * Input is the phase (or a gate render's target phase) plus the recorded
  * `untracked` ledger — nothing else. Imports only `state.ts`: tmux.ts imports
@@ -35,6 +36,21 @@ const FINISHED_FEATURE_PHASES: ReadonlySet<string> = new Set([
   "cancelled",
 ]);
 const PENDING_PHASE_SET: ReadonlySet<string> = new Set(PENDING_PHASES);
+// Pending phases where the pipeline is progressing on its own (CI or a
+// detached reviewer) and owes the user nothing.
+const SELF_RUNNING_PENDING: ReadonlySet<string> = new Set([
+  "ci-wait-pending",
+  "plan-review-pending",
+  "epic-plan-review-pending",
+]);
+
+/** Phases whose window carries a recorded verdict; the hook and `flow done` both key off this. */
+export const VERDICT_PHASES: ReadonlySet<string> = new Set([
+  "merged",
+  "cancelled",
+  "gated",
+  "needs-human",
+]);
 
 export function isOpenItem(item: UntrackedItem): boolean {
   return (
@@ -47,6 +63,16 @@ export function isOpenItem(item: UntrackedItem): boolean {
 
 function plural(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+function openItemsStep(openItems: UntrackedItem[]): string {
+  const hasWork = openItems.some((i) => i.kind !== "manual");
+  const hasManual = openItems.some((i) => i.kind === "manual");
+  if (hasWork && !hasManual)
+    return "Reply file all, drop all, or per item (file #N · drop #N · launch #N)";
+  if (!hasWork)
+    return "Reply done all, drop all, or per item (done #N · drop #N)";
+  return "Reply file all, done all, drop all, or per item (file #N · drop #N · launch #N · done #N)";
 }
 
 export function closeVerdict(
@@ -81,13 +107,12 @@ export function closeVerdict(
     return {
       kind: "needs-you",
       cause: "stalled",
-      reason:
-        "pipeline stalled; the PR and worktree are intact, nothing is lost",
+      reason: "pipeline stalled; nothing is lost — see the block above",
       openItems,
       steps: [],
     };
   }
-  if (PENDING_PHASE_SET.has(phase)) {
+  if (PENDING_PHASE_SET.has(phase) && !SELF_RUNNING_PENDING.has(phase)) {
     return {
       kind: "needs-you",
       cause: "waiting",
@@ -111,10 +136,7 @@ export function closeVerdict(
       cause: "open-items",
       reason: undecided,
       openItems,
-      steps: [
-        "Reply file all, drop all, or per item (file #N · drop #N · launch #N · done #N)",
-        done,
-      ],
+      steps: [openItemsStep(openItems), done],
     };
   }
   return {
@@ -147,8 +169,6 @@ export function verdictWord(line: string): "safe" | "not-ready" | null {
 export function badgeShort(
   state: Pick<PipelineState, "phase" | "kind" | "phaseLog" | "untracked">,
 ): string | null {
-  if (resolveStateKind(state) !== "feature") return null;
-  if (state.phase !== "merged" && state.phase !== "cancelled") return null;
-  if (!(state.untracked ?? []).some(isOpenItem)) return null;
+  if (closeVerdict({ ...state, slug: "" }).cause !== "open-items") return null;
   return state.phase === "merged" ? "merged?" : "cancel?";
 }

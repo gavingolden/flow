@@ -1,19 +1,20 @@
 /**
  * Runners for the `flow-untracked` verbs that act on several items or leave
- * the ledger: `file --all`, `drop --all`, `done`, `launch`, `verdict --json`.
+ * the ledger: `file --all`, `drop --all`, `done`, `launch`, `verdict --json`,
+ * plus the badge-refresh seam. The turn-end hook's recorder lives next to the
+ * merge seeder in `untracked-merge-seed.ts`.
  * Pure over a `PipelineState` plus injected seams, so the entrypoint
  * (`bin/flow-untracked.ts`) stays a thin CLI and every verb is unit-testable.
  *
  * Nothing here runs unless the user's reply asked for it: `fileAll` /
  * `launchItem` are the only outward-facing verbs and the pause contract fires
- * them only on an explicit reply (AGENTS.md "Auto-issue-create exemption").
+ * them only on an explicit reply (`.claude/rules/flow-supervisor-contracts.md` "Auto-issue-create exemption").
  */
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   EFFORT_LEVELS,
   MODEL_ALIASES,
-  readState,
-  writeState,
   type PipelineState,
   type UntrackedItem,
 } from "./state";
@@ -102,11 +103,16 @@ export function doneItem(
 export type SpawnLaunch = (
   argv: string[],
   env: NodeJS.ProcessEnv,
+  cwd?: string,
 ) => { stdout: string; exitCode: number };
 
 export function defaultSpawnLaunch(): SpawnLaunch {
-  return (argv, env) => {
-    const r = spawnSync(argv[0], argv.slice(1), { encoding: "utf8", env });
+  return (argv, env, cwd) => {
+    const r = spawnSync(argv[0], argv.slice(1), {
+      encoding: "utf8",
+      env,
+      ...(cwd && existsSync(cwd) ? { cwd } : {}),
+    });
     return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
   };
 }
@@ -134,6 +140,13 @@ export function launchItem(
   const idx = items.findIndex((i) => i.id === id);
   if (idx === -1) throw new Error(`no untracked item #${id}`);
   const item = items[idx];
+  if (item.launchedAs !== undefined) return { state, slug: item.launchedAs };
+  if (!isWork(item)) {
+    throw new Error(
+      `#${id} is a manual check, not a work item — use done #${id} or drop #${id}`,
+    );
+  }
+  if (!isOpenItem(item)) throw new Error(`#${id} is already decided`);
   if (
     opts.model !== undefined &&
     !(MODEL_ALIASES as readonly string[]).includes(opts.model)
@@ -154,7 +167,12 @@ export function launchItem(
   const argv = ["flow", "feature", "create", description];
   if (opts.model) argv.push("--model", opts.model);
   if (opts.effort) argv.push("--effort", opts.effort);
-  const r = deps.spawnLaunch(argv, scrubLaunchEnv(deps.env ?? process.env));
+  // The child resolves its repo from cwd; the pipeline's worktree may be gone.
+  const r = deps.spawnLaunch(
+    argv,
+    scrubLaunchEnv(deps.env ?? process.env),
+    state.repo,
+  );
   const m = /^flow:(\S+)\s*$/m.exec(r.stdout);
   if (r.exitCode !== 0 || !m) {
     throw new Error(
@@ -188,51 +206,4 @@ export function defaultPublishBadges(state: PipelineState): void {
   } catch {
     // publish-only; a tmux failure must not fail the verb
   }
-}
-
-/**
- * Records un-numbered slot items a finished-window message listed. Dedup is by
- * normalised title against EVERY existing item (so a re-run, or an idea
- * already recorded another way, adds nothing). Records only — never files.
- */
-export function appendRecorded(
-  state: PipelineState,
-  items: Array<{ title: string; kind: "work" | "manual" }>,
-  now: () => string = () => new Date().toISOString(),
-): { state: PipelineState; added: number[] } {
-  const all: UntrackedItem[] = [...(state.untracked ?? [])];
-  const norm = (t: string): string =>
-    t.trim().replace(/\s+/g, " ").toLowerCase();
-  const seen = new Set(all.map((i) => norm(i.title)));
-  let next = all.reduce((m, i) => Math.max(m, i.id), 0) + 1;
-  const added: number[] = [];
-  for (const it of items) {
-    if (seen.has(norm(it.title))) continue;
-    seen.add(norm(it.title));
-    all.push({
-      id: next,
-      title: it.title,
-      source: "turn-end",
-      at: now(),
-      ...(it.kind === "manual" ? { kind: "manual" as const } : {}),
-    });
-    added.push(next++);
-  }
-  return { state: { ...state, untracked: all }, added };
-}
-
-/** The hook's persisted form of `appendRecorded`: read, append, write only when something was added. */
-export function recordTurnEndItems(
-  slug: string,
-  items: Array<{ title: string; kind: "work" | "manual" }>,
-  io: {
-    read: typeof readState;
-    write: typeof writeState;
-  } = { read: readState, write: writeState },
-): PipelineState {
-  const st = io.read(slug);
-  if (!st) throw new Error(`no state for ${slug}`);
-  const r = appendRecorded(st, items);
-  if (r.added.length > 0) io.write(r.state);
-  return r.state;
 }

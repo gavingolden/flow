@@ -106,12 +106,19 @@ export function parsePauseSlots(text: string): Parsed | null {
  */
 export function slotItems(slot: string | undefined): string[] {
   if (!slot) return [];
+  // Already-recorded items lead with their `#N` id or carry a reply verb
+  // (`done #3`); a bare `#1084` in prose is an ordinary PR/issue mention.
+  const isNoise = (text: string): boolean =>
+    /^\d+\s.*\b(fixed|deferred|filed|dropped)\b/i.test(text) ||
+    /^(checkpointed:|GATED:|MERGED$|NEEDS HUMAN:|cancelled$)/.test(text);
   const recordable = (text: string): boolean =>
-    !/(^|\s)#\d+\b/.test(text) &&
+    !/^#\d+\b/.test(text) &&
+    !/\b(?:file|drop|done|launch)\s+#\d+\b/i.test(text) &&
     !/^(none\b|—|-$|n\/a\b)/i.test(text) &&
-    !/^\d+\s.*\b(fixed|deferred|filed|dropped)\b/i.test(text) &&
-    !/^(checkpointed:|GATED:|MERGED$|NEEDS HUMAN:|cancelled$)/.test(text);
-  const lines = slot.split("\n").filter((l) => l.trim() !== "");
+    !isNoise(text);
+  const lines = slot
+    .split("\n")
+    .filter((l) => l.trim() !== "" && !isNoise(l.trim()));
   // A single un-bulleted line is the item written inline on the label line
   // (`**Untracked:** <idea>`), the shape a one-item slot usually takes.
   if (lines.length === 1 && !/^\s*[-*]\s/.test(lines[0])) {

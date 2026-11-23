@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { formatVerdict, type Verdict } from "../flow-followups";
-import { applyMergeSeeds, mergeSeedEntries } from "./untracked-merge-seed";
+import {
+  appendRecorded,
+  applyMergeSeeds,
+  mergeSeedEntries,
+  recordTurnEndItems,
+} from "./untracked-merge-seed";
 import type { PipelineState } from "./state";
 
 const base: PipelineState = {
@@ -9,6 +14,69 @@ const base: PipelineState = {
   repo: "/r",
   updatedAt: "t",
 };
+
+describe("FAIL_LINE", () => {
+  it("seeds a follow-up that failed to spawn (exit -1)", () => {
+    const seeds = mergeSeedEntries({
+      afterMerge: [],
+      followupEntries: [],
+      followupsBlock: "  FAIL    brew install shellcheck  (exit -1)\n",
+    });
+    expect(seeds.map((s) => s.source)).toEqual(["followup"]);
+  });
+});
+
+describe("appendRecorded / recordTurnEndItems", () => {
+  const w = (title: string, kind: "work" | "manual" = "work") => ({
+    title,
+    kind,
+  });
+  it("dedups against dropped items and within a batch by normalised title", () => {
+    const s = {
+      ...base,
+      untracked: [
+        {
+          id: 3,
+          title: "serialize parallel suites",
+          source: "x",
+          at: "t",
+          droppedAt: "t",
+        },
+      ],
+    };
+    const r = appendRecorded(
+      s,
+      [
+        w("  Serialize   parallel suites "),
+        w("new idea", "manual"),
+        w("NEW IDEA"),
+      ],
+      () => "t2",
+    );
+    expect(r.added).toEqual([4]);
+    expect(r.state.untracked!.at(-1)).toMatchObject({
+      id: 4,
+      source: "turn-end",
+      kind: "manual",
+    });
+  });
+
+  it("writes only when something was added, and throws on a missing state", () => {
+    const s = {
+      ...base,
+      untracked: [{ id: 1, title: "a idea", source: "x", at: "t" }],
+    };
+    const write = vi.fn();
+    const read = vi.fn(() => s);
+    recordTurnEndItems("s", [w("A  Idea")], { read, write });
+    expect(write).not.toHaveBeenCalled();
+    recordTurnEndItems("s", [w("other")], { read, write });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(() =>
+      recordTurnEndItems("s", [w("x")], { read: () => null, write }),
+    ).toThrow(/no state/);
+  });
+});
 
 describe("mergeSeedEntries", () => {
   it("turns one after-merge item and one non-allowlisted follow-up into two manual items", () => {

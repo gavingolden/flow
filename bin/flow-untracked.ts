@@ -7,7 +7,7 @@
  * (survives `flow-remove-worktree` — the terminal block after MERGED still
  * needs to show it), `list`/`render` surface it at every pause, and `file
  * <id>` files it as a real issue only on an explicit, user-instructed reply
- * — never automatically (AGENTS.md "Auto-issue-create exemption").
+ * — never automatically (`.claude/rules/flow-supervisor-contracts.md` "Auto-issue-create exemption").
  *
  * Storage: `state.json.untracked[]` (not the worktree — `flow-followups`'s
  * JSONL pattern dies with the worktree, which is gone by MERGED). Ids are
@@ -31,9 +31,10 @@
  *   0 — success (including no-op cases like an empty/absent state file for
  *       `list`/`render`).
  *   1 — `flow-create-issue` failed during `file` for a reason other than a
- *       body rejection (e.g. `gh` unavailable, no Issues surface).
- *   2 — bad CLI args, missing state file (for `add`/`file`/`drop`), or an
- *       unresolvable slug.
+ *       body rejection (e.g. `gh` unavailable, no Issues surface), or
+ *       `flow feature create` did not confirm a launch during `launch`.
+ *   2 — bad CLI args, missing state file, unknown id, `done` on a work item,
+ *       or an unresolvable slug.
  *   3 — `flow-create-issue` rejected the body (exit 3, mapped straight
  *       through — see `CreateIssueError`).
  */

@@ -499,7 +499,6 @@ in a feature plan's calibration appendix).
 > **Untracked:** none — #651 (bench the flash-medium/-low tiers) filed
 > at merge.
 > 5 findings fixed, 0 deferred.
-> WINDOW: ✓ safe to close — nothing recorded as open
 > **Next action:** `flow done re-run-flow-model-benchmark`
 
 **GATED, Q&A above the block (calibration sample 6):**
