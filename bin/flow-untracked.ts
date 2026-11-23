@@ -218,6 +218,11 @@ export function fileItem(
   }
   const item = items[idx];
   if (item.filedAs !== undefined) return state;
+  if (item.kind === "manual") {
+    throw new Error(
+      `#${id} is a manual check — use done #${id} or drop #${id}`,
+    );
+  }
   const body = item.body ?? buildShortFormBody(item, state.slug);
   const { url } = createIssue(item.title, body);
   const next = [...items];

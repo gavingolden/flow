@@ -351,6 +351,21 @@ describe("run", () => {
     expect(readState("s1", dir)?.untracked?.[0].filedAs).toBe("https://x/1");
   });
 
+  it("file refuses a manual check without calling createIssue", () => {
+    seed(addItem(BASE, { title: "m", source: "x", kind: "manual" }, now));
+    let calls = 0;
+    const code = run(["file", "1"], {
+      resolveSlug: () => "s1",
+      stateDir: dir,
+      createIssue: () => {
+        calls++;
+        return { url: "u" };
+      },
+    });
+    expect(code).not.toBe(0);
+    expect(calls).toBe(0);
+  });
+
   it("file on an unknown id fails with exit 2 (bad-args contract, not the flow-create-issue exit)", () => {
     seed(BASE);
     const code = run(["file", "99"], {
