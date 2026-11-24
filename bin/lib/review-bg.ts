@@ -105,6 +105,40 @@ function skipHelper(
   );
 }
 
+function newState(
+  worktree: string,
+  generation: string,
+  startedAtSec: number,
+  configPath: string,
+  scope: ReturnType<typeof readScope>,
+): ReviewBgState {
+  const p = bgPaths(worktree);
+  return {
+    version: 1,
+    generation,
+    head_sha: scope.head_sha,
+    scope: scope.scope,
+    review_started_at: scope.started,
+    configPath,
+    watchdog: null,
+    diffSnapshot: null,
+    helpers: {
+      "gemini-lens": emptyHelper(
+        startedAtSec,
+        p.lensEnvelope,
+        p.lensOut,
+        p.lensLog,
+      ),
+      "gemini-intent-guess": emptyHelper(
+        startedAtSec,
+        p.intentEnvelope,
+        p.intentOut,
+        p.intentLog,
+      ),
+    },
+  };
+}
+
 function clearStale(worktree: string, io: StateIO): void {
   const p = bgPaths(worktree);
   for (const f of [p.lensEnvelope, p.intentEnvelope, p.lensOut, p.intentOut]) {
@@ -157,30 +191,13 @@ export function startHelpers(
   clearStale(worktree, io);
   io.mkdirp(p.scratch);
   const startedAtSec = Math.floor(deps.nowMs() / 1000);
-  const state: ReviewBgState = {
-    version: 1,
-    generation: deps.mintGeneration(),
-    head_sha: scope.head_sha,
-    scope: scope.scope,
-    review_started_at: scope.started,
+  const state = newState(
+    worktree,
+    deps.mintGeneration(),
+    startedAtSec,
     configPath,
-    watchdog: null,
-    diffSnapshot: null,
-    helpers: {
-      "gemini-lens": emptyHelper(
-        startedAtSec,
-        p.lensEnvelope,
-        p.lensOut,
-        p.lensLog,
-      ),
-      "gemini-intent-guess": emptyHelper(
-        startedAtSec,
-        p.intentEnvelope,
-        p.intentOut,
-        p.intentLog,
-      ),
-    },
-  };
+    scope,
+  );
   const lens = state.helpers["gemini-lens"];
   const guess = state.helpers["gemini-intent-guess"];
   const skipBoth = (reason: string) => {
@@ -281,26 +298,14 @@ export function writeSkippedState(
   const scope = readScope(io, worktree);
   io.mkdirp(p.tmp);
   clearStale(worktree, io);
-  const t = Math.floor(now() / 1000);
-  const mk = (envelope: string, out: string, log: string) => {
-    const h = emptyHelper(t, envelope, out, log);
-    skipHelper(h, reason, io);
-    return h;
-  };
-  const state: ReviewBgState = {
-    version: 1,
-    generation: randomUUID(),
-    head_sha: scope.head_sha,
-    scope: scope.scope,
-    review_started_at: scope.started,
-    configPath: "",
-    watchdog: null,
-    diffSnapshot: null,
-    helpers: {
-      "gemini-lens": mk(p.lensEnvelope, p.lensOut, p.lensLog),
-      "gemini-intent-guess": mk(p.intentEnvelope, p.intentOut, p.intentLog),
-    },
-  };
+  const state = newState(
+    worktree,
+    randomUUID(),
+    Math.floor(now() / 1000),
+    "",
+    scope,
+  );
+  for (const h of Object.values(state.helpers)) skipHelper(h, reason, io);
   writeReviewBgState(worktree, state, io);
   return state;
 }
