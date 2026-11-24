@@ -22,10 +22,13 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { homedir } from "node:os";
+import { isGeminiLensEnabled } from "../flow-gemini-lens";
 import {
   validatePrReviewResult,
   type PrReviewResult,
 } from "./pr-review-result-schema";
+import { writeSkippedState } from "./review-bg";
 
 export type ExecResult = { stdout: string; stderr: string; exitCode: number };
 export type ExecFn = (argv: string[], opts?: { cwd?: string }) => ExecResult;
@@ -71,6 +74,8 @@ export type ReviewPrepOptions = {
   readFile?: (p: string) => string | null;
   writeFile?: (p: string, content: string) => void;
   deleteFile?: (p: string) => void;
+  // Raw ~/.flow/config.json text, for the `review.gemini` gate.
+  readConfig?: () => string;
 };
 
 const COMMITS_JQ =
@@ -102,6 +107,10 @@ function defaultWriteFile(p: string, content: string): void {
   const tmp = `${p}.tmp`;
   fs.writeFileSync(tmp, content);
   fs.renameSync(tmp, p);
+}
+
+function defaultReadConfig(): string {
+  return fs.readFileSync(path.join(homedir(), ".flow", "config.json"), "utf8");
 }
 
 function defaultDeleteFile(p: string): void {
@@ -226,7 +235,10 @@ export async function runReviewPrep(
   // survive into this round. pr-review-result.json is deliberately NOT
   // cleared here: flow-review-scope reads its prior `clean` status to
   // allow a delta scope, so it is removed right after the scope step.
-  deleteFile(path.join(dir, "agent-output-gemini.json"));
+  // agent-output-gemini.json is deliberately NOT cleared here: a same-head
+  // re-run adopts the live background run, and clearing it would delete a
+  // finished lens result. `flow-review-bg start` (every non-adopt path) and
+  // the background_helpers sub-step below own that delete.
   deleteFile(path.join(dir, "consolidator-result.json"));
   deleteFile(path.join(dir, "bundle-check.json"));
   deleteFile(path.join(dir, "bundle-check.prior.json"));
@@ -350,6 +362,51 @@ export async function runReviewPrep(
   });
 
   const criticalSkips = skips.filter((s) => s.critical).map((s) => s.step);
+
+  const geminiOut = path.join(dir, "agent-output-gemini.json");
+  if (state.toUpperCase() !== "OPEN" || criticalSkips.length > 0) {
+    deleteFile(geminiOut);
+  } else {
+    try {
+      const r = exec(["flow-review-bg", "start", "--worktree", opts.worktree]);
+      if (r.exitCode !== 0) {
+        deleteFile(geminiOut);
+        skips.push({
+          step: "background_helpers",
+          reason: r.stderr || "flow-review-bg start failed",
+          critical: false,
+        });
+      }
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (
+        e.code !== "ENOENT" &&
+        !/not found in \$PATH/i.test(errMessage(err))
+      ) {
+        deleteFile(geminiOut);
+        skips.push({
+          step: "background_helpers",
+          reason: errMessage(err),
+          critical: false,
+        });
+      } else {
+        notices.push(
+          "NOTICE — background-helpers: flow-review-bg not installed (Gemini checks skipped)",
+        );
+        let raw = "";
+        try {
+          raw = (opts.readConfig ?? defaultReadConfig)();
+        } catch {
+          raw = "";
+        }
+        if (isGeminiLensEnabled(raw)) {
+          writeSkippedState(opts.worktree, "gemini-helper-missing");
+        } else {
+          deleteFile(geminiOut);
+        }
+      }
+    }
+  }
   if (criticalSkips.length > 0) {
     const escalated = setupIncompleteResult(skips);
     const checked = validatePrReviewResult(escalated);

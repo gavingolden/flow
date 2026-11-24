@@ -147,6 +147,8 @@ const argv = (lenses: string, extra: string[] = []) => [
 
 const envelope = () => JSON.parse(lines[lines.length - 1]!);
 const tmpFile = (name: string) => path.join(worktree, ".flow-tmp", name);
+const scratchDir = () =>
+  path.join(worktree, ".flow-tmp", "scratch", "agy-lenses");
 
 beforeEach(() => {
   worktree = fs.mkdtempSync(path.join(os.tmpdir(), "agy-lenses-"));
@@ -844,6 +846,9 @@ describe("content-filter refusals", () => {
       "partial output",
     );
     expect(fs.existsSync(tmpFile("agy-lens-bug-detection.prompt"))).toBe(false);
+    expect(
+      fs.existsSync(path.join(scratchDir(), "agy-lens-bug-detection.prompt")),
+    ).toBe(false);
     expect(fs.statSync(path.join(cacheDir, prompt!)).mode & 0o777).toBe(0o600);
     expect(fs.statSync(cacheDir).mode & 0o777).toBe(0o700);
   });
@@ -991,6 +996,7 @@ describe("Gemini re-run of a refused lens", () => {
     expect(fanoutOpts).toHaveLength(2);
     const paths = fanoutOpts.flatMap((o) => [o.manifestPath, o.outPath]);
     expect(new Set(paths).size).toBe(paths.length);
+    for (const p of paths) expect(path.dirname(p)).toBe(scratchDir());
   });
 
   it("records the primary model on a lens that needed no re-run", async () => {
@@ -1238,6 +1244,7 @@ describe("prompt inputs", () => {
         .filter((f) => f.startsWith("agy-") && f !== "agy-lenses-result.json");
     await run(argv("pattern-consistency"), deps());
     expect(leftovers()).toEqual([]);
+    expect(fs.existsSync(scratchDir())).toBe(false);
     await run(
       argv("bug-detection"),
       deps({

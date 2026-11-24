@@ -60,6 +60,7 @@ import {
   isContentFilterText,
 } from "./lib/agy-failure-class";
 import { keepRefusalEvidence } from "./lib/agy-refusal-cache";
+import { agyLensesScratchDir, rmdirIfEmpty } from "./lib/helper-scratch";
 import { flowCacheDir } from "./lib/paths";
 import {
   mergeAgyLensesRecord,
@@ -197,6 +198,7 @@ export type Deps = {
   readFile: (path: string) => string | null;
   writeFile: (path: string, contents: string, mode?: number) => void;
   removeFile: (path: string) => void;
+  removeDir?: (dir: string) => void;
   mkdirp: (dir: string, mode?: number) => void;
   listDir: (dir: string) => string[];
   // Where a refused lens's prompt and raw output are kept after the scratch
@@ -216,6 +218,8 @@ export type Deps = {
 
 const tmp = (worktree: string, name: string) =>
   join(worktree, ".flow-tmp", name);
+const scratch = (worktree: string, name: string) =>
+  join(agyLensesScratchDir(worktree), name);
 
 function fileConfigReader(path: string): ReadConfigFile {
   return () => {
@@ -483,18 +487,19 @@ async function runDelegated(
   }
 
   const primarySchema = lensSchemaFor(variant);
-  const schemaPath = tmp(args.worktree, "agy-lenses.schema.json");
-  const rerouteSchemaPath = tmp(args.worktree, "agy-reroute.schema.json");
-  const scratch = [schemaPath, rerouteSchemaPath];
+  const schemaPath = scratch(args.worktree, "agy-lenses.schema.json");
+  const rerouteSchemaPath = scratch(args.worktree, "agy-reroute.schema.json");
+  const scratchFiles = [schemaPath, rerouteSchemaPath];
   try {
-    deps.mkdirp(join(args.worktree, ".flow-tmp"));
+    deps.mkdirp(agyLensesScratchDir(args.worktree));
     deps.writeFile(schemaPath, JSON.stringify(primarySchema.schema));
     deps.writeFile(
       rerouteSchemaPath,
       JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA),
     );
   } catch {
-    for (const p of scratch) deps.removeFile(p);
+    for (const p of scratchFiles) deps.removeFile(p);
+    rmdirIfEmpty(agyLensesScratchDir(args.worktree), deps.removeDir);
     return failAll("agy-prep-failed", inputs.reviewStartedAt);
   }
 
@@ -543,9 +548,9 @@ async function runDelegated(
     promptPath: string,
     rawPath: string,
   ): Promise<EntryResult | undefined> => {
-    const manifestPath = tmp(args.worktree, `${task}.manifest.json`);
-    const fanoutOut = tmp(args.worktree, `${task}.fanout.json`);
-    scratch.push(promptPath, rawPath, manifestPath, fanoutOut);
+    const manifestPath = scratch(args.worktree, `${task}.manifest.json`);
+    const fanoutOut = scratch(args.worktree, `${task}.fanout.json`);
+    scratchFiles.push(promptPath, rawPath, manifestPath, fanoutOut);
     try {
       const result = await deps.runFanout(
         [
@@ -570,12 +575,12 @@ async function runDelegated(
 
   const runChain = async (lens: DelegatableLens): Promise<LensOutcome> => {
     const task = `agy-lens-${lens}`;
-    const promptPath = tmp(args.worktree, `${task}.prompt`);
-    const rawPath = tmp(args.worktree, `${task}.raw`);
+    const promptPath = scratch(args.worktree, `${task}.prompt`);
+    const rawPath = scratch(args.worktree, `${task}.raw`);
     try {
       writePrompt(lens, promptPath, primarySchema.scratchpadField);
     } catch {
-      scratch.push(promptPath);
+      scratchFiles.push(promptPath);
       return {
         fallback: {
           lens,
@@ -619,14 +624,14 @@ async function runDelegated(
     const timeout = rerouteTimeout(deps.now() - helperStartMs);
     if (timeout === null) return stillFallback("skipped-no-time");
     const rerouteTaskName = rerouteTask(lens);
-    const reroutePrompt = tmp(args.worktree, `${rerouteTaskName}.prompt`);
+    const reroutePrompt = scratch(args.worktree, `${rerouteTaskName}.prompt`);
     try {
       writePrompt(lens, reroutePrompt, true);
     } catch {
-      scratch.push(reroutePrompt);
+      scratchFiles.push(reroutePrompt);
       return stillFallback("agy-prep-failed");
     }
-    const rerouteRaw = tmp(args.worktree, `${rerouteTaskName}.raw`);
+    const rerouteRaw = scratch(args.worktree, `${rerouteTaskName}.raw`);
     const rerouteEntry = await fanOne(
       rerouteTaskName,
       rerouteModel,
@@ -663,7 +668,8 @@ async function runDelegated(
     if (o.cls !== undefined) classes.push(o.cls);
     failureTexts.push(...o.failureTexts);
   }
-  for (const p of scratch) deps.removeFile(p);
+  for (const p of scratchFiles) deps.removeFile(p);
+  rmdirIfEmpty(agyLensesScratchDir(args.worktree), deps.removeDir);
   return {
     delegated,
     fallback,
@@ -904,6 +910,7 @@ function resolveDeps(args: Args, o?: Partial<Deps>): Deps {
       o?.writeFile ??
       ((p, c, mode) => writeFileSync(p, c, mode === undefined ? {} : { mode })),
     removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
+    removeDir: o?.removeDir,
     mkdirp:
       o?.mkdirp ?? ((d, mode) => void mkdirSync(d, { recursive: true, mode })),
     listDir: o?.listDir ?? ((d) => readdirSync(d)),

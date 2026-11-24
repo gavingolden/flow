@@ -1,3 +1,4 @@
+import { rmdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 export type HelperScratchPaths = {
@@ -23,4 +24,28 @@ export function helperScratchPaths(
     raw: join(dir, "agy-raw"),
     retryRaw: join(dir, "agy-raw-retry"),
   };
+}
+
+export function rmdirIfEmpty(
+  dir: string,
+  rmdir: (dir: string) => void = rmdirSync,
+): void {
+  try {
+    rmdir(dir);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT" && code !== "ENOTEMPTY") throw err;
+  }
+}
+
+export function removeEmptyScratchDirs(
+  paths: HelperScratchPaths,
+  rmdir?: (dir: string) => void,
+): void {
+  rmdirIfEmpty(paths.dir, rmdir);
+  rmdirIfEmpty(dirname(paths.dir), rmdir);
+}
+
+export function agyLensesScratchDir(worktree: string): string {
+  return join(worktree, ".flow-tmp", "scratch", "agy-lenses");
 }

@@ -60,10 +60,27 @@ function makeExec(
     failStaticAnalysis?: boolean;
     reviewScopeExtra?: Record<string, unknown>;
     staticAnalysisStderr?: string;
+    prState?: string;
+    bgExit?: number;
+    bgMissing?: boolean;
+    bgCalls?: string[][];
   } = {},
 ) {
   return (argv: string[]): ExecResult => {
     const [cmd] = argv;
+    if (cmd === "flow-review-bg") {
+      opts.bgCalls?.push(argv);
+      if (opts.bgMissing) {
+        throw Object.assign(new Error("Executable not found in $PATH"), {
+          code: "ENOENT",
+        });
+      }
+      return {
+        stdout: "{}",
+        stderr: opts.bgExit ? "start exploded" : "",
+        exitCode: opts.bgExit ?? 0,
+      };
+    }
     if (cmd === "flow-fetch-pr-review") {
       if (opts.failFetch) {
         return { stdout: "", stderr: "gh: PR not found", exitCode: 1 };
@@ -79,7 +96,7 @@ function makeExec(
     if (cmd === "gh") {
       return {
         stdout: JSON.stringify({
-          state: opts.emptyState ? "" : "OPEN",
+          state: opts.emptyState ? "" : (opts.prState ?? "OPEN"),
           isDraft: false,
           additions: opts.metaAdditions ?? 10,
           deletions: opts.metaDeletions ?? 5,
@@ -399,15 +416,114 @@ describe("fail-closed review setup (#839)", () => {
     }
   });
 
-  it("pre-clean: a successful run removes stale gemini, consolidator and prior result files and writes no result", async () => {
-    seed("agent-output-gemini.json", "{}");
+  it("pre-clean: a successful run removes stale consolidator and prior result files and writes no result", async () => {
     seed("consolidator-result.json", "{}");
     seed("pr-review-result.json", cleanResult);
     const prep = await runReviewPrep({ pr: 1, worktree, exec: makeExec() });
     expect(prep.critical_skips).toEqual([]);
-    expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
     expect(fs.existsSync(tmpPath("consolidator-result.json"))).toBe(false);
     expect(fs.existsSync(tmpPath("pr-review-result.json"))).toBe(false);
+  });
+
+  describe("background Gemini helpers", () => {
+    const gemini = JSON.stringify({ review: { gemini: true } });
+
+    it("starts flow-review-bg once for an OPEN PR with no critical skip and keeps an adopted lens result", async () => {
+      seed("agent-output-gemini.json", "{}");
+      const bgCalls: string[][] = [];
+      const prep = await runReviewPrep({
+        pr: 1,
+        worktree,
+        exec: makeExec({ bgCalls }),
+      });
+      expect(bgCalls).toEqual([
+        ["flow-review-bg", "start", "--worktree", worktree],
+      ]);
+      expect(prep.completeness).toBe("full");
+      expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(true);
+    });
+
+    it.each(["CLOSED", "MERGED"])(
+      "does not start it for a %s PR and clears the lens result",
+      async (prState) => {
+        seed("agent-output-gemini.json", "{}");
+        const bgCalls: string[][] = [];
+        await runReviewPrep({
+          pr: 1,
+          worktree,
+          exec: makeExec({ prState, bgCalls }),
+        });
+        expect(bgCalls).toEqual([]);
+        expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+      },
+    );
+
+    it("does not start it after a critical skip and clears the lens result", async () => {
+      seed("agent-output-gemini.json", "{}");
+      const bgCalls: string[][] = [];
+      const prep = await runReviewPrep({
+        pr: 1,
+        worktree,
+        exec: makeExec({ failFetch: true, bgCalls }),
+      });
+      expect(prep.critical_skips).toContain("fetch");
+      expect(bgCalls).toEqual([]);
+      expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+    });
+
+    it("a missing helper is a NOTICE, not a skip, and records gemini-helper-missing when gemini is on", async () => {
+      seed("agent-output-gemini.json", "{}");
+      const prep = await runReviewPrep({
+        pr: 1,
+        worktree,
+        exec: makeExec({ bgMissing: true }),
+        readConfig: () => gemini,
+      });
+      expect(prep.completeness).toBe("full");
+      expect(prep.skips).toEqual([]);
+      expect(prep.notices).toContain(
+        "NOTICE — background-helpers: flow-review-bg not installed (Gemini checks skipped)",
+      );
+      const state = JSON.parse(
+        fs.readFileSync(tmpPath("review-bg.json"), "utf8"),
+      );
+      expect(state.helpers["gemini-lens"].skipReason).toBe(
+        "gemini-helper-missing",
+      );
+      expect(state.head_sha).toBe("deadbeef");
+      expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+    });
+
+    it("a missing helper with gemini off writes no state, only clears the lens result", async () => {
+      seed("agent-output-gemini.json", "{}");
+      await runReviewPrep({
+        pr: 1,
+        worktree,
+        exec: makeExec({ bgMissing: true }),
+        readConfig: () => "{}",
+      });
+      expect(fs.existsSync(tmpPath("review-bg.json"))).toBe(false);
+      expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+    });
+
+    it("a non-zero start is a named non-critical skip", async () => {
+      seed("agent-output-gemini.json", "{}");
+      const prep = await runReviewPrep({
+        pr: 1,
+        worktree,
+        exec: makeExec({ bgExit: 1 }),
+      });
+      expect(prep.completeness).toBe("partial");
+      expect(prep.critical_skips).toEqual([]);
+      expect(prep.skips).toEqual([
+        {
+          step: "background_helpers",
+          reason: "start exploded",
+          critical: false,
+        },
+      ]);
+      expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+    });
   });
 
   it("pre-clean: removes a previous pass's bundle-check verdict files", async () => {

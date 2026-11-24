@@ -86,6 +86,7 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-post-findings",
   "flow-reply-pr-comments",
   "flow-plan-review-wait",
+  "flow-review-bg",
   "flow-ui-critique",
   "flow-ui-capture",
   "flow-coder-skills-check",

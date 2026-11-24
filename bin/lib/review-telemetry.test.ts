@@ -103,6 +103,7 @@ describe("aggregateCounts", () => {
     expect(counts["bug-detection"]).toEqual({
       ran: true,
       skip_reason: null,
+      skip_class: null,
       findings_emitted: 0,
       findings_survived: 0,
       findings_dropped: 0,
@@ -112,6 +113,26 @@ describe("aggregateCounts", () => {
       agy_model: null,
       rerouted_from: null,
       fallback_reason: null,
+    });
+  });
+
+  it("uses skipDetail instead of 'no artifact' for a lens with no artifact", () => {
+    const counts = aggregateCounts({
+      agentOutputs: { gemini: null, security: null },
+      consolidator: null,
+      fixApplier: null,
+      skipDetail: {
+        gemini: { skip_reason: "lens-timeout", skip_class: "ran-unusable" },
+      },
+    });
+    expect(counts.gemini).toMatchObject({
+      ran: false,
+      skip_reason: "lens-timeout",
+      skip_class: "ran-unusable",
+    });
+    expect(counts.security).toMatchObject({
+      skip_reason: "no artifact",
+      skip_class: null,
     });
   });
 
@@ -584,6 +605,7 @@ describe("mergeTelemetry", () => {
     const entry = {
       ran: true,
       skip_reason: null,
+      skip_class: null,
       findings_emitted: 0,
       findings_survived: 0,
       findings_dropped: 0,
@@ -631,20 +653,35 @@ describe("mergeTelemetry", () => {
     });
   });
 
-  it("tags rows version 4", () => {
+  it("carries intent_guess through, defaulting to null", () => {
+    const base = { ...baseArgs, counts: {}, lensTokens: {}, transcripts: {} };
+    expect(mergeTelemetry(base).intent_guess).toBeNull();
+    const guess = {
+      ran: false,
+      skip_reason: "agy-cooldown",
+      skip_class: "environment",
+    };
+    expect(
+      mergeTelemetry({ ...base, intentGuess: guess }).intent_guess,
+    ).toEqual(guess);
+    expect(mergeTelemetry(base).lenses["bug-detection"].skip_class).toBeNull();
+  });
+
+  it("tags rows version 5", () => {
     const t = mergeTelemetry({
       ...baseArgs,
       counts: {},
       lensTokens: {},
       transcripts: {},
     });
-    expect(t.version).toBe(4);
+    expect(t.version).toBe(5);
   });
 
   it("records the effort level with the most turns, and null without a usable transcript or on an agy lens", () => {
     const entry = {
       ran: true,
       skip_reason: null,
+      skip_class: null,
       findings_emitted: 0,
       findings_survived: 0,
       findings_dropped: 0,
