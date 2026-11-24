@@ -40,7 +40,7 @@ function stateFor(
     head_sha: "abc",
     scope: "full",
     review_started_at: null,
-    configPath: "/cfg.json",
+    configPath: "/wt/cfg.json",
     watchdog: null,
     diffSnapshot: P.snapshot,
     helpers: {
@@ -167,7 +167,7 @@ describe("runSupervise startup", () => {
       "--out",
       P.lensOut,
       "--config",
-      "/cfg.json",
+      "/wt/cfg.json",
     ]);
   });
 });
@@ -262,14 +262,39 @@ describe("runSupervise signals and ownership", () => {
   });
 
   it("a superseded generation never overwrites the newer state", async () => {
-    const t = setup(stateFor("g", { guess: "skipped" }));
+    const t = setup(stateFor("g", { guess: "skipped" }), {
+      [P.snapshot]: "diff",
+    });
     t.hooks.push(() => {
       writeReviewBgState(WT, stateFor("newer"), t.io);
-      t.children.forEach((c) => c.exit());
     });
     await runSupervise({ worktree: WT, generation: "g" }, t.deps);
     const s = read(t.files);
     expect(s.generation).toBe("newer");
     expect(s.helpers["gemini-lens"].status).toBe("running");
+    expect(t.files.get(P.snapshot)).toBe("diff");
+    expect(t.kills).toContainEqual([t.children[0]!.pid, "SIGTERM"]);
+  });
+
+  it("refuses a state whose config path is outside the worktree and the flow config", async () => {
+    const st = stateFor("g");
+    st.configPath = "/etc/passwd";
+    const t = setup(st);
+    await expect(
+      runSupervise({ worktree: WT, generation: "g" }, t.deps),
+    ).rejects.toBeInstanceOf(SuperviseRefused);
+    expect(t.children).toHaveLength(0);
+  });
+
+  it("ignores helper paths in the state file and uses the worktree layout", async () => {
+    const st = stateFor("g", { guess: "skipped" });
+    st.helpers["gemini-lens"].envelope = "/victim/envelope";
+    st.helpers["gemini-lens"].out = "/victim/out";
+    st.helpers["gemini-lens"].giveUpAtSec = 0;
+    const t = setup(st, { "/victim/out": "keep", "/victim/envelope": "keep" });
+    await runSupervise({ worktree: WT, generation: "g" }, t.deps);
+    expect(t.files.get("/victim/out")).toBe("keep");
+    expect(t.files.get("/victim/envelope")).toBe("keep");
+    expect(t.children[0]!.argv).toContain(P.lensOut);
   });
 });

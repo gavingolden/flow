@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { run, runWait, type WaitDeps } from "./flow-review-bg";
 import {
@@ -6,7 +9,7 @@ import {
   writeReviewBgState,
   type ReviewBgState,
   type StateIO,
-} from "./lib/review-bg";
+} from "./lib/review-bg-state";
 
 const WT = "/wt";
 const P = bgPaths(WT);
@@ -78,6 +81,28 @@ function setup(
 }
 
 describe("runWait", () => {
+  it("recovers complete from a whole envelope when the watchdog is dead", async () => {
+    const t = setup(state(), "abc", { isAlive: () => false });
+    t.files.set(P.lensEnvelope, '{"ran":true,"findingCount":1}\n');
+    const r = await runWait({ worktree: WT, maxSec: 10 }, t.deps);
+    expect(r.helpers["gemini-lens"]).toMatchObject({
+      outcome: "complete",
+      ran: true,
+    });
+    expect(r.helpers["gemini-lens"].skipReason).toBeUndefined();
+    expect(r.helpers["gemini-intent-guess"].outcome).toBe(
+      "helper-exited-without-envelope",
+    );
+  });
+
+  it("stamps awaitedAt on the first snapshot", async () => {
+    const t = setup(state());
+    await runWait({ worktree: WT, maxSec: 0 }, t.deps);
+    expect(readReviewBgState(t.files.get(P.state)!)?.awaitedAt).toBeTypeOf(
+      "number",
+    );
+  });
+
   it("returns done:true with parsed envelope fields once both helpers resolved", async () => {
     const t = setup(state());
     writeReviewBgState(
@@ -195,5 +220,57 @@ describe("run (CLI)", () => {
     [["wait", "--worktree", "/w", "--max-sec", "x"]],
   ])("exits 2 on usage error %j", async (argv) => {
     expect(await run(argv as string[], () => {})).toBe(2);
+  });
+});
+
+describe("run (CLI) against a real worktree", () => {
+  it("start with gemini off then wait reports both disabled skips", async () => {
+    const wt = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-bg-"));
+    try {
+      const tmp = path.join(wt, ".flow-tmp");
+      fs.mkdirSync(tmp);
+      fs.writeFileSync(
+        path.join(tmp, "review-scope.json"),
+        JSON.stringify({ head_sha: "abc", scope: "full" }),
+      );
+      fs.writeFileSync(path.join(tmp, "diff.txt"), "");
+      const cfg = path.join(wt, "cfg.json");
+      fs.writeFileSync(cfg, "{}");
+      expect(
+        await run(["start", "--worktree", wt, "--config", cfg], () => {}),
+      ).toBe(0);
+      const out: string[] = [];
+      expect(await run(["wait", "--worktree", wt], (l) => out.push(l))).toBe(0);
+      const report = JSON.parse(out[0]!);
+      expect(report.helpers["gemini-intent-guess"].skipReason).toBe(
+        "gemini-intent-guess-disabled",
+      );
+      expect(report.helpers["gemini-lens"].skipReason).toBe(
+        "gemini-lens-disabled",
+      );
+    } finally {
+      fs.rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  it("supervise without a matching state is refused and exits 0", async () => {
+    const wt = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-bg-"));
+    try {
+      expect(
+        await run(
+          ["supervise", "--worktree", wt, "--generation", "nope"],
+          () => {},
+        ),
+      ).toBe(0);
+    } finally {
+      fs.rmSync(wt, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("executable bit", () => {
+  it("is executable", () => {
+    const p = path.join(import.meta.dirname ?? ".", "flow-review-bg.ts");
+    expect(fs.statSync(p).mode & 0o111).not.toBe(0);
   });
 });

@@ -17,6 +17,8 @@ import { GRACE_MS } from "./reap";
 import {
   bgPaths,
   BG_HELPERS,
+  helperPaths,
+  isTrustedConfigPath,
   readReviewBgState,
   realStateIO,
   writeEnvelopeIfOwner,
@@ -131,6 +133,10 @@ export async function runSupervise(
   if (initial === null || initial.generation !== generation) {
     throw new SuperviseRefused("no review-bg state for this generation");
   }
+  if (!isTrustedConfigPath(worktree, initial.configPath)) {
+    throw new SuperviseRefused("state names an untrusted config path");
+  }
+  const snapshotPath = paths.snapshot;
   const running = BG_HELPERS.filter(
     (h) => initial.helpers[h].status === "running",
   );
@@ -173,14 +179,14 @@ export async function runSupervise(
   };
 
   for (const helper of running) {
-    const h = initial.helpers[helper];
+    const h = { ...initial.helpers[helper], ...helperPaths(worktree, helper) };
     const child = deps.spawnChild(
       [
         HELPER_BIN[helper],
         "--worktree",
         worktree,
         "--diff-file",
-        initial.diffSnapshot ?? paths.diff,
+        initial.diffSnapshot === null ? paths.diff : snapshotPath,
         "--out",
         h.out,
         "--config",
@@ -203,7 +209,7 @@ export async function runSupervise(
       await deps.sleep(deps.graceMs);
       if (deps.groupAlive(pid)) deps.killGroup(pid, "SIGKILL");
     }
-    const h = initial.helpers[helper];
+    const h = helperPaths(worktree, helper);
     if (isCompleteEnvelope(io.readFile(h.envelope))) {
       commit(helper, "complete");
       return;
@@ -233,7 +239,10 @@ export async function runSupervise(
       for (const helper of running) {
         if (resolved.has(helper) || stopped || lost) continue;
         const t = tracked.get(helper)!;
-        const h = initial.helpers[helper];
+        const h = {
+          ...initial.helpers[helper],
+          ...helperPaths(worktree, helper),
+        };
         if (t.exited) {
           if (isCompleteEnvelope(io.readFile(h.envelope))) {
             commit(helper, "complete");
@@ -295,10 +304,10 @@ export async function runSupervise(
     killAll("SIGTERM");
   } else if (!stopped) {
     const done = readReviewBgState(io.readFile(paths.state));
-    io.removeFile(initial.diffSnapshot ?? paths.snapshot);
+    io.removeFile(snapshotPath);
     for (const helper of running) {
       if (done?.helpers[helper].outcome === "complete") {
-        io.removeFile(initial.helpers[helper].log);
+        io.removeFile(helperPaths(worktree, helper).log);
       }
     }
     if (running.every((h) => done?.helpers[h].outcome === "complete")) {

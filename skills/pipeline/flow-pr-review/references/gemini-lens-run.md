@@ -38,8 +38,9 @@ It prints one JSON line `{done, elapsedSec, helpers: {"gemini-lens": …,
 outcome. Each helper entry carries `outcome`, `ran`, the helper's own envelope
 fields, and `skipReason` / `skipClass` when it did not run.
 
-Skipping the wait means Gemini's findings never reach Step 3.5, and Step 12's
-lens table shows `gemini-not-awaited`.
+Skipping the wait means Gemini's findings are not guaranteed to reach Step 3.5,
+and Step 12's lens table shows `gemini-not-awaited` whether or not the lens
+finished on its own later (the first `wait` call stamps the run as awaited).
 
 ## Branch per helper
 

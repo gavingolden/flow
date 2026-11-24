@@ -30,8 +30,6 @@ import {
   type StateIO,
 } from "./review-bg-state";
 
-export * from "./review-bg-state";
-
 export type StartDeps = {
   io: StateIO;
   nowMs: () => number;
@@ -281,14 +279,12 @@ export function writeSkippedState(
 ): ReviewBgState {
   const p = bgPaths(worktree);
   const scope = readScope(io, worktree);
-  io.removeFile(p.lensOut);
+  io.mkdirp(p.tmp);
+  clearStale(worktree, io);
   const t = Math.floor(now() / 1000);
   const mk = (envelope: string, out: string, log: string) => {
     const h = emptyHelper(t, envelope, out, log);
-    h.status = "skipped";
-    h.outcome = "skipped";
-    h.skipReason = reason;
-    h.skipClass = SKIP_ENVIRONMENT;
+    skipHelper(h, reason, io);
     return h;
   };
   const state: ReviewBgState = {
@@ -305,7 +301,6 @@ export function writeSkippedState(
       "gemini-intent-guess": mk(p.intentEnvelope, p.intentOut, p.intentLog),
     },
   };
-  io.mkdirp(p.tmp);
   writeReviewBgState(worktree, state, io);
   return state;
 }

@@ -91,6 +91,7 @@ import {
 } from "./merge-allow-rule";
 import {
   FLOW_EXEC_REVIEW_ALLOW_RULES,
+  FLOW_REVIEW_BG_ALLOW_RULES,
   FLOW_NARROW_ALLOW_RULES,
   FLOW_ROUTINE_ALLOW_RULES,
 } from "./pipeline-allow-rules";
@@ -2106,6 +2107,7 @@ export function launchSettingsPermissions(): {
       ...FLOW_OVERRIDE_ALLOW_RULES,
       ...FLOW_ROUTINE_ALLOW_RULES,
       ...FLOW_EXEC_REVIEW_ALLOW_RULES,
+      ...FLOW_REVIEW_BG_ALLOW_RULES,
       ...Object.values(FLOW_NARROW_ALLOW_RULES).flat(),
     ],
   };

@@ -589,6 +589,7 @@ describe("background Gemini skip detail", () => {
       lens?: ReturnType<typeof helper>;
       guess?: ReturnType<typeof helper>;
       noState?: boolean;
+      awaited?: boolean;
     },
   ) => {
     const tmp = path.join(dir, ".flow-tmp");
@@ -613,6 +614,7 @@ describe("background Gemini skip detail", () => {
           scope: "full",
           review_started_at: null,
           configPath: "/c",
+          ...(opts.awaited === false ? {} : { awaitedAt: 1 }),
           watchdog: null,
           diffSnapshot: null,
           helpers: {
@@ -687,6 +689,21 @@ describe("background Gemini skip detail", () => {
     expect(t.lenses.gemini).toMatchObject({
       skip_reason: "gemini-not-awaited",
       skip_class: "ran-unusable",
+    });
+  });
+
+  it("names gemini-not-awaited when the lens finished after nobody waited", async () => {
+    const dir = makeWorktree();
+    seed(dir, { awaited: false, lensEnvelope: '{"ran":true}\n' });
+    fs.writeFileSync(
+      path.join(dir, ".flow-tmp", "agent-output-gemini.json"),
+      JSON.stringify({ findings: [{ file: "a", line: 1 }] }),
+    );
+    const t = await collect(dir);
+    expect(t.lenses.gemini).toMatchObject({
+      ran: false,
+      skip_reason: "gemini-not-awaited",
+      findings_emitted: 0,
     });
   });
 

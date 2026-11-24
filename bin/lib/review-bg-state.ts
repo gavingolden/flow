@@ -14,7 +14,8 @@ import {
   rmdirSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve, sep } from "node:path";
 import { classifyDelegateSkip, type SkipClass } from "./delegate-skip-class";
 import { livenessOf, type Liveness } from "./liveness";
 
@@ -46,6 +47,8 @@ export type ReviewBgState = {
   scope: string | null;
   review_started_at: string | null;
   configPath: string;
+  // Stamped by the first `wait` snapshot (epoch sec); absent = nobody waited.
+  awaitedAt?: number;
   watchdog: { pid: number; pidStartEpoch: number | null } | null;
   diffSnapshot: string | null;
   helpers: Record<BgHelper, BgHelperState>;
@@ -104,6 +107,31 @@ export function bgPaths(worktree: string) {
     lensLog: join(scratch, "gemini-lens.log"),
     intentLog: join(scratch, "gemini-intent-guess.log"),
   };
+}
+
+// The helper paths a run always uses, rebuilt from the worktree layout so a
+// state file written by an agent cannot redirect them elsewhere on disk.
+export function helperPaths(
+  worktree: string,
+  helper: BgHelper,
+): { envelope: string; out: string; log: string } {
+  const p = bgPaths(worktree);
+  return helper === "gemini-lens"
+    ? { envelope: p.lensEnvelope, out: p.lensOut, log: p.lensLog }
+    : { envelope: p.intentEnvelope, out: p.intentOut, log: p.intentLog };
+}
+
+// `--config` is the default flow config or a file under the worktree.
+export function isTrustedConfigPath(
+  worktree: string,
+  configPath: string,
+): boolean {
+  if (configPath === "") return false;
+  const abs = resolve(configPath);
+  return (
+    abs === resolve(homedir(), ".flow", "config.json") ||
+    abs.startsWith(`${resolve(worktree)}${sep}`)
+  );
 }
 
 // Lens: delegate timeout + the helper's 120 s retry rung + 300 s grace.
@@ -233,6 +261,14 @@ export function resolveGeminiSkip(
   });
   if (state === null || state.head_sha !== headSha) {
     return skip("gemini-not-launched");
+  }
+  // A launched helper nobody waited on never reached Step 3.5, even when its
+  // envelope landed later.
+  if (
+    state.awaitedAt === undefined &&
+    state.helpers[helper].status !== "skipped"
+  ) {
+    return skip("gemini-not-awaited", "ran-unusable");
   }
   try {
     const e = JSON.parse(envelopeText ?? "") as Record<string, unknown>;

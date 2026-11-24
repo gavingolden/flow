@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { startHelpers, writeSkippedState, type StartDeps } from "./review-bg";
 import {
   bgPaths,
   giveUpSec,
   ownsState,
   readReviewBgState,
   resolveGeminiSkip,
-  startHelpers,
   writeIfOwner,
-  writeSkippedState,
   type ReviewBgState,
-  type StartDeps,
   type StateIO,
-} from "./review-bg";
+} from "./review-bg-state";
 
 const WT = "/wt";
 const P = bgPaths(WT);
@@ -251,6 +249,21 @@ describe("ownership-checked writes", () => {
 });
 
 describe("writeSkippedState", () => {
+  it("clears stale envelopes and the intent guess output from an earlier pass", () => {
+    const { io, files } = makeIO({
+      [P.reviewScope]: SCOPE(),
+      [P.lensEnvelope]: '{"ran":true}\n',
+      [P.intentEnvelope]: '{"ran":true}\n',
+      [P.intentOut]: "old",
+    });
+    writeSkippedState(WT, "gemini-helper-missing", io);
+    expect(files.has(P.intentOut)).toBe(false);
+    expect(JSON.parse(files.get(P.lensEnvelope)!).skipReason).toBe(
+      "gemini-helper-missing",
+    );
+    expect(JSON.parse(files.get(P.intentEnvelope)!).ran).toBe(false);
+  });
+
   it("writes a both-skipped state and removes agent-output-gemini.json", () => {
     const { io, files } = makeIO({
       [P.reviewScope]: SCOPE(),
@@ -264,9 +277,30 @@ describe("writeSkippedState", () => {
   });
 });
 
+describe("startHelpers diff snapshot", () => {
+  it("skips both as gemini-diff-unreadable and spawns nothing when the diff is missing", () => {
+    const d = makeDeps({});
+    d.files.delete(P.diff);
+    const s = start(d);
+    expect(d.runs).toHaveLength(0);
+    expect(s.diffSnapshot).toBeNull();
+    for (const h of Object.values(s.helpers)) {
+      expect(h).toMatchObject({
+        status: "skipped",
+        skipReason: "gemini-diff-unreadable",
+        skipClass: "environment",
+      });
+    }
+    expect(JSON.parse(d.files.get(P.lensEnvelope)!).skipReason).toBe(
+      "gemini-diff-unreadable",
+    );
+  });
+});
+
 describe("resolveGeminiSkip", () => {
-  const base = (): ReviewBgState =>
+  const unawaited = (): ReviewBgState =>
     startHelpers({ worktree: WT, config: CONFIG }, makeDeps({}).deps);
+  const base = (): ReviewBgState => ({ ...unawaited(), awaitedAt: 1 });
 
   it("names gemini-not-launched for no state or a different head", () => {
     expect(resolveGeminiSkip("gemini-lens", null, null, "abc")).toEqual({
@@ -314,6 +348,16 @@ describe("resolveGeminiSkip", () => {
   it("names gemini-not-awaited while a helper is still running with no envelope", () => {
     expect(
       resolveGeminiSkip("gemini-intent-guess", base(), null, "abc"),
+    ).toEqual({
+      ran: false,
+      skip_reason: "gemini-not-awaited",
+      skip_class: "ran-unusable",
+    });
+  });
+
+  it("names gemini-not-awaited for a launched helper nobody waited on, even with a complete envelope", () => {
+    expect(
+      resolveGeminiSkip("gemini-lens", unawaited(), '{"ran":true}\n', "abc"),
     ).toEqual({
       ran: false,
       skip_reason: "gemini-not-awaited",

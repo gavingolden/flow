@@ -345,6 +345,11 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
     deps.readFile(path.join(tmpDir, "intent-guess-envelope.json")),
     scope.head_sha,
   );
+  // A lens nobody waited on never reached consolidation, even if its output
+  // landed afterwards: report it as skipped, not as a run that lost findings.
+  if (lensSkip.skip_reason === "gemini-not-awaited") {
+    agentOutputs.gemini = null;
+  }
   const counts = aggregateCounts({
     agentOutputs,
     consolidator,

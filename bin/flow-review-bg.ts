@@ -14,20 +14,21 @@
  * quota on its own. Exit 0 on every outcome; 2 on usage errors.
  */
 
+import { startHelpers } from "./lib/review-bg";
 import {
   BG_HELPERS,
   bgPaths,
+  helperPaths,
   readReviewBgState,
   readScope,
   realStateIO,
-  startHelpers,
   watchdogLiveness,
   writeIfOwner,
   type BgHelper,
   type BgOutcome,
   type ReviewBgState,
   type StateIO,
-} from "./lib/review-bg";
+} from "./lib/review-bg-state";
 import {
   isCompleteEnvelope,
   runSupervise,
@@ -84,6 +85,18 @@ function snapshot(
   );
   const notLaunched = state === null || state.head_sha !== scope.head_sha;
 
+  // Record that the review called wait, so telemetry can name a skipped wait
+  // even when the lens finishes after consolidation.
+  if (!notLaunched && state !== null && state.awaitedAt === undefined) {
+    state =
+      writeIfOwner(
+        worktree,
+        state.generation,
+        (s) => void (s.awaitedAt ??= Math.floor(deps.nowMs() / 1000)),
+        io,
+      ) ?? state;
+  }
+
   // A dead watchdog with a helper still running will never resolve it.
   if (!notLaunched && state !== null) {
     const live = watchdogLiveness(
@@ -105,7 +118,9 @@ function snapshot(
               for (const h of stuck) {
                 const hs = s.helpers[h];
                 if (hs.status !== "running") continue;
-                const complete = isCompleteEnvelope(io.readFile(hs.envelope));
+                const complete = isCompleteEnvelope(
+                  io.readFile(helperPaths(worktree, h).envelope),
+                );
                 hs.status = "done";
                 hs.outcome = complete
                   ? "complete"
@@ -132,15 +147,13 @@ function snapshot(
         ran: false,
         skipReason: "gemini-not-launched",
         skipClass: "environment",
-        envelope:
-          bgPaths(worktree)[
-            h === "gemini-lens" ? "lensEnvelope" : "intentEnvelope"
-          ],
+        envelope: helperPaths(worktree, h).envelope,
       };
       continue;
     }
     if (hs.status === "running") resolved = false;
-    const env = parseEnvelope(io.readFile(hs.envelope));
+    const envelope = helperPaths(worktree, h).envelope;
+    const env = parseEnvelope(io.readFile(envelope));
     helpers[h] = {
       ...(env ?? {}),
       outcome: hs.outcome ?? "pending",
@@ -152,7 +165,7 @@ function snapshot(
             : false,
       ...(hs.skipReason !== undefined && { skipReason: hs.skipReason }),
       ...(hs.skipClass !== undefined && { skipClass: hs.skipClass }),
-      envelope: hs.envelope,
+      envelope,
     };
   }
   return { helpers, resolved };

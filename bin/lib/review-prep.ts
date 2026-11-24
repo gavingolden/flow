@@ -14,10 +14,11 @@
  * list) are `critical: true`. `completeness` is `"partial"` on ANY skip.
  * Any critical skip makes this helper write the escalated
  * `review-setup-incomplete` result artifact itself and the review stops at
- * Step 2 — a non-critical hiccup never does. Prior-round inputs (gemini and
- * consolidator output, the old result, a failed scope pass's
+ * Step 2 — a non-critical hiccup never does. Prior-round inputs (consolidator
+ * output, the old result, a failed scope pass's
  * `review-scope.json` / `diff.txt`) are cleared so none can be read as
- * this round's.
+ * this round's. The Gemini lens output is the exception: `flow-review-bg
+ * start` owns that delete, so a same-head re-run can adopt the live run.
  */
 
 import * as fs from "node:fs";
