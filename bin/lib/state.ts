@@ -437,6 +437,10 @@ export type PlanReviewRecord = {
  * `flow-untracked file <id>` has run `flow-create-issue` for it (idempotent
  * — a second `file` call is a no-op); `droppedAt` is set once
  * `flow-untracked drop <id>` has run — dropped items never render again.
+ * `kind` is `"manual"` for a check only the user can perform (resolved with
+ * `done`, never filed); absent means `"work"`. `doneAt` marks a manual item
+ * done; `launchedAs` records the slug of a pipeline started for the item via
+ * `flow-untracked launch`.
  */
 export type UntrackedItem = {
   id: number;
@@ -444,8 +448,11 @@ export type UntrackedItem = {
   body?: string;
   source: string;
   at: string;
+  kind?: "work" | "manual";
   filedAs?: string;
   droppedAt?: string;
+  doneAt?: string;
+  launchedAs?: string;
 };
 
 /**
@@ -979,6 +986,12 @@ function isUntrackedList(x: unknown): x is UntrackedItem[] {
     if (o.filedAs !== undefined && typeof o.filedAs !== "string") return false;
     if (o.droppedAt !== undefined && typeof o.droppedAt !== "string")
       return false;
+    if (o.doneAt !== undefined && typeof o.doneAt !== "string") return false;
+    if (o.launchedAs !== undefined && typeof o.launchedAs !== "string")
+      return false;
+    // `kind` is deliberately not enum-checked: one unknown value must not
+    // make readState null the whole pipeline. Consumers treat non-"manual"
+    // as "work".
   }
   return true;
 }

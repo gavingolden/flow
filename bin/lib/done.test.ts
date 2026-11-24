@@ -1,7 +1,15 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from "vitest";
 
 // Mock node:fs's readSync so the prompt path is fully controllable from
 // tests. The real fs.readSync property isn't reconfigurable, so vi.spyOn
@@ -89,7 +97,12 @@ const stateMock = vi.hoisted(() => ({
       } | null,
   ),
 }));
-vi.mock("./state", () => stateMock);
+// close-verdict (the open-items guard) reads real phase constants from state,
+// so keep the real exports and override only the I/O functions.
+vi.mock("./state", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./state")>()),
+  ...stateMock,
+}));
 
 const turnTrackingMock = vi.hoisted(() => ({
   deleteTurnTracking: vi.fn(),
@@ -170,7 +183,7 @@ vi.mock("./stale-shells-run", () => ({
   STALE_SHELL_MIN_AGE_SEC: 60,
 }));
 
-import { runDone, runDoneCli, REAP_TIMEOUT_MS } from "./done";
+import { openItemsGuard, runDone, runDoneCli, REAP_TIMEOUT_MS } from "./done";
 import type { StaleShellSweepResult } from "./stale-shells-run";
 import { LockTimeoutError } from "./lock";
 
@@ -1657,5 +1670,186 @@ describe("stale-shell sweep", () => {
     const acts = seam.mock.calls.filter((c) => c[1] === true);
     expect(acts).toHaveLength(1);
     expect(acts[0][0]).toEqual([{ slug: "a" }]);
+  });
+});
+
+describe("open-items guard", () => {
+  const item = (id: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    title: `item ${id}`,
+    source: "pr-review",
+    at: "t",
+    ...extra,
+  });
+  const withItems = (
+    slug: string,
+    phase: string,
+    untracked: unknown[],
+  ): ReturnType<typeof state> =>
+    ({ ...state({ slug, phase }), untracked }) as ReturnType<typeof state>;
+  let log: MockInstance<typeof console.log>;
+  let err: MockInstance<typeof console.error>;
+  beforeEach(() => {
+    log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    log.mockRestore();
+    err.mockRestore();
+  });
+
+  it("openItemsGuard blocks only guarded phases with open items", () => {
+    expect(
+      openItemsGuard(withItems("a", "merged", [item(1)]) as never).blocked,
+    ).toBe(true);
+    expect(
+      openItemsGuard(withItems("a", "gated", [item(1)]) as never).blocked,
+    ).toBe(true);
+    expect(
+      openItemsGuard(withItems("a", "reviewing", [item(1)]) as never).blocked,
+    ).toBe(false);
+    expect(
+      openItemsGuard(
+        withItems("a", "merged", [item(1, { droppedAt: "t" })]) as never,
+      ).blocked,
+    ).toBe(false);
+    expect(
+      openItemsGuard(withItems("a", "merged", [item(1), item(2)]) as never)
+        .summary,
+    ).toBe("2 undecided items (#1, #2)");
+  });
+
+  it("caps the named ids at five", () => {
+    const items = [1, 2, 3, 4, 5, 6, 7].map((n) => item(n));
+    expect(
+      openItemsGuard(withItems("a", "merged", items) as never).summary,
+    ).toBe("7 undecided items (#1, #2, #3, #4, #5 +2 more)");
+  });
+
+  it("--yes refuses with a non-zero exit, names the items, and leaves state in place", () => {
+    stateMock.readState.mockReturnValue(
+      withItems("a", "merged", [item(1)]) as never,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    expect(runDoneCli(["a", "--yes"])).toBe(1);
+    expect(stateMock.deleteState).not.toHaveBeenCalled();
+    expect(tmuxMock.killWindow).not.toHaveBeenCalled();
+    expect(String(err.mock.calls[0][0])).toContain("1 undecided item (#1)");
+    expect(String(err.mock.calls[0][0])).toContain("--force");
+  });
+
+  it("--force closes despite open items", () => {
+    stateMock.readState.mockReturnValue(
+      withItems("a", "merged", [item(1)]) as never,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    expect(runDoneCli(["a", "--yes", "--force"])).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("a");
+  });
+
+  it("the interactive prompt lists the open items", () => {
+    stateMock.readState.mockReturnValue(
+      withItems("a", "merged", [item(1)]) as never,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    const out = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    readSyncMock.mockImplementation((_fd, buf) => {
+      const bytes = Buffer.from("n\n");
+      bytes.copy(buf as Buffer);
+      return bytes.length;
+    });
+    expect(runDoneCli(["a"])).toBe(0);
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "#1 item 1",
+    );
+    expect(stateMock.deleteState).not.toHaveBeenCalled();
+    out.mockRestore();
+  });
+
+  it("an in-flight pipeline with open items is still closable with --yes (cancel path)", () => {
+    stateMock.readState.mockReturnValue(
+      withItems("a", "reviewing", [item(1)]) as never,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    expect(runDoneCli(["a", "--yes"])).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("a");
+  });
+
+  it("multi-slug skips the undecided window, closes the clean one, exits non-zero", () => {
+    stateMock.readState.mockImplementation((slug: string) =>
+      slug === "a"
+        ? (withItems("a", "merged", [item(1)]) as never)
+        : slug === "b"
+          ? (state({ slug: "b", phase: "merged" }) as never)
+          : null,
+    );
+    tmuxMock.listWindows.mockReturnValue([window("a"), window("b")]);
+    expect(runDoneCli(["a", "b", "--yes"])).toBe(1);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("b");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("a");
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "skipped 1 with undecided items: a (#1)",
+    );
+  });
+
+  it("--merged sweeps clean windows and names the skipped ones, interactive or not", () => {
+    stateMock.listStates.mockReturnValue([
+      withItems("a", "merged", [item(1), item(2)]) as never,
+      state({ slug: "b", phase: "cancelled" }) as never,
+    ]);
+    stateMock.readState.mockImplementation(
+      (slug: string) =>
+        stateMock.listStates().find((s) => s.slug === slug) ?? null,
+    );
+    expect(runDoneCli(["--merged", "--yes"])).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("b");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("a");
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "skipped 1 with undecided items: a (#1, #2)",
+    );
+  });
+
+  it("--merged --orphans skips the merged half's undecided window but keeps clean ones", () => {
+    stateMock.listStates.mockReturnValue([
+      withItems("a", "merged", [item(1)]) as never,
+      state({ slug: "o", phase: "implementing" }) as never,
+    ]);
+    stateMock.readState.mockImplementation(
+      (slug: string) =>
+        stateMock.listStates().find((s) => s.slug === slug) ?? null,
+    );
+    expect(runDoneCli(["--merged", "--orphans", "--yes"])).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("o");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("a");
+  });
+
+  it("--orphans skips a dead merged window holding undecided items but closes in-flight orphans", () => {
+    stateMock.listStates.mockReturnValue([
+      withItems("a", "merged", [item(1)]) as never,
+      state({ slug: "o", phase: "implementing" }) as never,
+    ]);
+    stateMock.readState.mockImplementation(
+      (slug: string) =>
+        stateMock.listStates().find((s) => s.slug === slug) ?? null,
+    );
+    expect(runDoneCli(["--orphans", "--yes"])).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("o");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("a");
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "skipped 1 with undecided items: a (#1)",
+    );
+  });
+
+  it("--merged --force closes windows with undecided items", () => {
+    stateMock.listStates.mockReturnValue([
+      withItems("a", "merged", [item(1)]) as never,
+    ]);
+    stateMock.readState.mockReturnValue(
+      withItems("a", "merged", [item(1)]) as never,
+    );
+    expect(runDoneCli(["--merged", "--yes", "--force"])).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("a");
   });
 });

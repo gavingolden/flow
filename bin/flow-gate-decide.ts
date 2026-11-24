@@ -269,12 +269,21 @@ function decideTestSteps(
   const { body, state, url, autoMerge } = inputs;
 
   if (state === "MERGED") {
+    const merged = parseTestStepsSection(body);
+    const afterMerge =
+      merged.kind !== "has-unchecked"
+        ? []
+        : partitionAfterMerge(
+            merged.uncheckedItems,
+            inputs.installNames ?? null,
+          ).afterMerge;
     return {
       decision: "merged-externally",
       prState: state,
       prUrl: url,
       reason: "PR was merged externally; supervisor cleans up worktree only",
       autoMerge,
+      ...(afterMerge.length > 0 ? { afterMerge } : {}),
     };
   }
   if (state === "CLOSED") {

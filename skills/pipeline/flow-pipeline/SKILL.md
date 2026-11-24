@@ -362,5 +362,5 @@ for when it appears. The `cancelled` line is never preceded by a
 follow-ups block.
 
 After printing the end-condition line, **end the turn**. The tmux
-window stays open with full scrollback. The user closes it later
-with `flow done <name>`.
+window stays open with full scrollback. The helper-owned Window verdict
+ends in `flow done <name>`.

@@ -60,3 +60,12 @@ names WHAT to look for; entries never suppress findings.
 
 - **A vendor fact a consumer agent will act on needs an official-doc anchor or a confidence mark.** When a skill reference names a vendor role, default, exporter, prefix, quota or price (an IAM role's data access, an exporter's default metric prefix or deprecation status, a detection signal list), check it against the vendor's official docs; flag an unanchored claim, a role that grants configuration but not data, or a detection list missing a route the same file documents.
 - **A sampler that reads process-local state must run where that state lives.** A recipe that samples a helper-local counter from a scheduled or separate runtime (a Cron Trigger isolate, a sidecar) reports zero while the real workers are busy; restrict such samplers to externally readable levels.
+
+## Multi-exit pipeline flows (PR #1084)
+
+- **Sibling exits get the same inputs.** A step added to one exit path of a pipeline
+  flow with several exits (merged / merged-externally / resume / cancelled) must receive
+  the same inputs on every sibling exit. PR #1084 seeded verified `After merge:` checks
+  and rendered them on the normal merge row but not on both `merged-externally` rows
+  (step-07 and step-09), so an externally merged PR read "safe to close" with checks
+  pending. When a PR touches one exit row, diff its flags against every sibling row.

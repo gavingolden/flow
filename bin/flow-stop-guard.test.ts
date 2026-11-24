@@ -10,6 +10,7 @@ import {
   NEXT_STEP_BY_PHASE,
   nextStepLabel,
   run,
+  verdictNotice,
   type Deps,
 } from "./flow-stop-guard";
 import {
@@ -1357,7 +1358,10 @@ describe("flow-stop-guard leftover sweep", () => {
     const r = await runWith(fakeState("gated", { worktree: "/w/demo" }), () =>
       sweepResult({ signalled: [], found: [] }),
     );
-    expect(r.outs).toEqual([]);
+    // The only message is the close-verdict line (gated, no block); the idle
+    // sweep adds nothing to it.
+    expect(r.outs).toHaveLength(1);
+    expect(JSON.parse(r.outs[0]!).systemMessage).not.toContain("leftover");
     expect(r.recorded).toEqual([]);
   });
 
@@ -1374,12 +1378,245 @@ describe("flow-stop-guard leftover sweep", () => {
       throwing,
     );
     expect([blocked.code, ended.code]).toEqual([2, 0]);
-    expect(ended.outs).toEqual([]);
+    expect(ended.outs).toHaveLength(1);
+    expect(JSON.parse(ended.outs[0]!).systemMessage).not.toContain("leftover");
   });
 
   it("does not sweep when the state has no worktree", async () => {
     const sweep = vi.fn(() => sweepResult());
     await runWith(fakeState("gated"), sweep);
     expect(sweep).not.toHaveBeenCalled();
+  });
+});
+
+describe("close-verdict hook line", () => {
+  const item = (id: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    title: `idea ${id}`,
+    source: "pr-review",
+    at: "t",
+    ...extra,
+  });
+
+  type Harness = {
+    code: number;
+    outs: string[];
+    published: PipelineState[];
+    recordCalls: Array<Array<{ title: string; kind: string }>>;
+    consumed: number;
+    msgs: string[];
+  };
+
+  async function runAt(
+    state: PipelineState,
+    opts: {
+      message?: string;
+      gate?: Record<string, unknown> | null;
+      noRecord?: boolean;
+    } = {},
+  ): Promise<Harness> {
+    const { deps } = makeDeps({
+      stdin: JSON.stringify({ last_assistant_message: opts.message }),
+      slug: "demo",
+      state,
+    });
+    const h: Harness = {
+      code: -1,
+      outs: [],
+      published: [],
+      recordCalls: [],
+      consumed: 0,
+      msgs: [],
+    };
+    deps.writeOut = (s) => void h.outs.push(s);
+    deps.publishBadges = (s) => void h.published.push(s);
+    deps.readGatePause = () => (opts.gate ?? null) as never;
+    deps.consumeGatePause = () => void h.consumed++;
+    if (!opts.noRecord) {
+      deps.recordItems = (_slug, items) => {
+        h.recordCalls.push(items);
+        const base = state.untracked ?? [];
+        return {
+          ...state,
+          untracked: [
+            ...base,
+            ...items.map((it, n) => ({
+              id: base.length + n + 1,
+              title: it.title,
+              source: "turn-end",
+              at: "t",
+              kind: it.kind,
+            })),
+          ],
+        } as PipelineState;
+      };
+    }
+    h.code = await run(deps);
+    h.msgs = h.outs.map((o) => JSON.parse(o).systemMessage as string);
+    return h;
+  }
+
+  const block = (extra: string): string =>
+    `### Merged\n\n**TLDR:** Done.\n\n${extra}\n\n**Next action:** flow done demo`;
+
+  it("prints the verdict naming the open item and flow done, exit 0", async () => {
+    const h = await runAt(fakeState("merged", { untracked: [item(1)] }), {
+      message: block("**Untracked:** #1 idea 1"),
+    });
+    expect(h.code).toBe(0);
+    expect(h.msgs).toHaveLength(1);
+    expect(h.msgs[0]).toContain("✗ not ready — 1 item undecided");
+    expect(h.msgs[0]).toContain("#1 idea 1");
+    expect(h.msgs[0]).toContain("flow done demo");
+  });
+
+  it("is silent when the message carries a matching WINDOW row", async () => {
+    const h = await runAt(fakeState("merged"), {
+      message: block("**Window:** ✓ safe to close — nothing recorded as open"),
+    });
+    expect(h.outs).toEqual([]);
+  });
+
+  it("speaks when the WINDOW row's verdict word disagrees with the ledger", async () => {
+    const h = await runAt(fakeState("merged", { untracked: [item(1)] }), {
+      message: block("**Window:** ✓ safe to close — nothing recorded as open"),
+    });
+    expect(h.msgs[0]).toContain("✗ not ready");
+  });
+
+  it("records an un-numbered bullet, names its new id, and republishes the badge", async () => {
+    const h = await runAt(fakeState("merged"), {
+      message: block("**Untracked:**\n- serialize parallel suites"),
+    });
+    expect(h.recordCalls[0]).toEqual([
+      { title: "serialize parallel suites", kind: "work" },
+    ]);
+    expect(h.msgs[0]).toContain(
+      "#1 serialize parallel suites (recorded just now)",
+    );
+    expect(h.published).toHaveLength(1);
+  });
+
+  it("harvests bullets only, never count lines or sentinels", async () => {
+    const h = await runAt(fakeState("merged"), {
+      message: block(
+        "**Untracked:**\n5 findings fixed, 0 deferred\ncheckpointed: saved\n- real idea",
+      ),
+    });
+    expect(h.recordCalls[0]).toEqual([{ title: "real idea", kind: "work" }]);
+  });
+
+  it("records Manual action bullets as manual items", async () => {
+    const h = await runAt(fakeState("merged"), {
+      message: block("**Manual action:**\n- run flow ls once"),
+    });
+    expect(h.recordCalls[0]).toEqual([
+      { title: "run flow ls once", kind: "manual" },
+    ]);
+  });
+
+  it("harvests Unsolved at merged but not at gated", async () => {
+    const merged = await runAt(fakeState("merged"), {
+      message: block("**Unsolved:**\n- leftover bug"),
+    });
+    expect(merged.recordCalls[0]).toEqual([
+      { title: "leftover bug", kind: "work" },
+    ]);
+    const gated = await runAt(fakeState("gated"), {
+      message: block("**Unsolved:**\n- unticked test step"),
+    });
+    expect(gated.recordCalls).toEqual([]);
+  });
+
+  it("publishes no badge when nothing was recorded", async () => {
+    const h = await runAt(fakeState("merged"), {
+      message: block("**Untracked:** none"),
+    });
+    expect(h.recordCalls).toEqual([]);
+    expect(h.published).toEqual([]);
+  });
+
+  it("treats an unconsumed gate record as the block once, then hedges on a block-less reply", async () => {
+    const gate = {
+      phase: "merged",
+      at: "t",
+      source: "gate",
+      window: "✓ safe to close — nothing recorded as open",
+    };
+    const first = await runAt(fakeState("merged"), { gate });
+    expect(first.outs).toEqual([]);
+    expect(first.consumed).toBe(1);
+    const later = await runAt(fakeState("merged"), {
+      gate: { ...gate, consumed: true },
+    });
+    expect(later.msgs[0]).toContain(
+      "0 recorded items open — this reply had no status block",
+    );
+    expect(later.msgs[0]).not.toContain("safe to close");
+  });
+
+  it("never says safe to close for a block-less reply with an empty ledger", async () => {
+    const h = await runAt(fakeState("merged"), {});
+    expect(h.msgs[0]).toContain(
+      "0 recorded items open — this reply had no status block",
+    );
+    expect(h.msgs[0]).toContain("flow done demo");
+  });
+
+  it("covers gated and needs-human windows", async () => {
+    const gated = await runAt(fakeState("gated"), { message: block("") });
+    expect(gated.msgs[0]).toContain("✗ not ready — PR not merged");
+    const stalled = await runAt(fakeState("needs-human"), {
+      message: block(""),
+    });
+    expect(stalled.msgs[0]).toContain("pipeline stalled");
+  });
+
+  it("leaves pending phases and epic windows untouched", async () => {
+    const pending = await runAt(fakeState("plan-pending-review"), {
+      message: block("**Untracked:**\n- idea"),
+    });
+    expect(pending.outs).toEqual([]);
+    expect(pending.recordCalls).toEqual([]);
+    const epic = await runAt(fakeState("merged", { kind: "epic-run" }), {
+      message: block("**Untracked:**\n- idea"),
+    });
+    expect(epic.outs).toEqual([]);
+    expect(epic.recordCalls).toEqual([]);
+  });
+
+  it("stays exit 0 and silent when a seam throws", async () => {
+    const { deps, errLines } = makeDeps({
+      stdin: JSON.stringify({
+        last_assistant_message: block("**Untracked:**\n- idea"),
+      }),
+      slug: "demo",
+      state: fakeState("merged"),
+    });
+    deps.recordItems = () => {
+      throw new Error("disk full");
+    };
+    deps.writeOut = () => {};
+    expect(await run(deps)).toBe(0);
+    expect(errLines).toEqual([]);
+  });
+
+  it("verdictNotice returns null for working and n/a verdicts", () => {
+    expect(
+      verdictNotice(
+        { kind: "working", reason: "r", openItems: [], steps: [] },
+        null,
+        "demo",
+        [],
+      ),
+    ).toBeNull();
+    expect(
+      verdictNotice(
+        { kind: "n/a", reason: "", openItems: [], steps: [] },
+        null,
+        "demo",
+        [],
+      ),
+    ).toBeNull();
   });
 });

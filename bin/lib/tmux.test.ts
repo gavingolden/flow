@@ -1078,6 +1078,55 @@ describe(publishStateBadges, () => {
     ]);
   });
 
+  describe("close-aware @flow-phase-short", () => {
+    const open = [{ id: 1, title: "t", source: "x", at: "t" }];
+    const resolved = [{ ...open[0], droppedAt: "t" }];
+    const shortFor = (
+      phase: string,
+      untracked?: Array<Record<string, unknown>>,
+    ): string | undefined => {
+      const { calls, spawnTmux } = fakeSpawn();
+      publishStateBadges(
+        {
+          slug: "csv-export",
+          phase,
+          kind: "feature",
+          launcher: "tmux",
+          untracked,
+        } as Parameters<typeof publishStateBadges>[0],
+        { spawnTmux, listWindowsFn: () => windows, env: {} },
+      );
+      return calls.find((c) => c[4] === "@flow-phase-short")?.[5];
+    };
+
+    it("publishes merged? with open items, merged when clean or resolved", () => {
+      expect(shortFor("merged", open)).toBe("merged?");
+      expect(shortFor("merged", resolved)).toBe("merged");
+      expect(shortFor("merged")).toBe("merged");
+    });
+
+    it("publishes cancel? with open items and the plain short value otherwise", () => {
+      expect(shortFor("cancelled", open)).toBe("cancel?");
+      expect(shortFor("cancelled")).toBe("cancel");
+    });
+
+    it("leaves every other phase on its plain short value", () => {
+      expect(shortFor("gated", open)).toBe("gated");
+      expect(shortFor("reviewing", open)).toBe("review");
+    });
+
+    it("keeps every published value ASCII and at most 7 columns", () => {
+      for (const v of [
+        shortFor("merged", open),
+        shortFor("merged"),
+        shortFor("cancelled", open),
+        shortFor("cancelled"),
+      ]) {
+        expect(v).toMatch(/^[\x20-\x7e]{1,7}$/);
+      }
+    });
+  });
+
   it("ends with a best-effort `refresh-client -S` so the new badges repaint immediately", () => {
     // Must be LAST: the repaint has to follow every set-option, or the
     // status line redraws with the previous values still in place.

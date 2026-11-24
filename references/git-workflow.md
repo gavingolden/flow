@@ -420,7 +420,8 @@ flow-agent,deferred-review`; including the fix-applier's single consolidated iss
 retrospective generic-gap capture, (c) `/flow-pipeline`'s Step 10
 post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
 per `- [x]` candidate in plan.md), (d) a user-instructed
-`flow-untracked file <n>` reply, and (e) the `/flow-file-issue` skill's
+`flow-untracked file <n>` reply (or its bulk form, the user's `file all`
+reply, which files every open work item the render listed), and (e) the `/flow-file-issue` skill's
 hand-filed path. Indiscriminate auto-creation pollutes
 backlogs and races on `gh` rate limits. Feature and `route-to-step-4`
 pipelines curate the ticked set at plan review (candidates are ticked

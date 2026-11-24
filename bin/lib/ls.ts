@@ -52,6 +52,7 @@ import {
 import { recoveryCommandFor } from "./recovery-command";
 import { reapStartingOrphans, STARTING_ORPHAN_GRACE_MS } from "./reap-orphans";
 import { relativeTime } from "./time";
+import { closeVerdict, type CloseVerdict } from "./close-verdict";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
 import { resolveRepoRoot, makeSameRepository } from "./repo-root";
 import { dim, dimStderr } from "./color";
@@ -109,6 +110,8 @@ export type Row = {
   prUrl?: string;
   lastActivity: string;
   annotation: "" | "(no window)" | "(no state)" | "(crashed)" | "(done)";
+  /** The `CLOSE?` cell: `yes` / `no: …` for feature rows, `—` for everything else. */
+  close: string;
   /** True only when this row is a genuine crashed/orphaned session the user
    * should resume — derived once here in buildRows so the footer (below)
    * never has to re-infer eligibility from the display string. */
@@ -233,6 +236,7 @@ export async function runLs(opts: LsOptions): Promise<number> {
 
   printTable(rows, opts);
   printOrphanRecovery(rows);
+  printCloseFooter(rows);
   printHiddenRepos(hidden, windows);
   if (opts.cost && opts.detail) printDetail(rows);
   warnUnknownModels(rows);
@@ -391,6 +395,7 @@ export async function buildRows(
     // footer(s) merely call the same function rather than re-deriving
     // eligibility from the phase or the display string.
     const rowKind = resolveStateKind(state);
+    const closeV = closeVerdict(state);
     let annotation: Row["annotation"];
     let verdict: Liveness | undefined;
     if (TERMINAL_PHASE_SET.has(state.phase)) {
@@ -411,9 +416,14 @@ export async function buildRows(
       // documented sibling, not a shared helper. Deliberately does NOT fall
       // through to `livenessOf` below: no pid is recorded for the run
       // window, so a live run would misread as "(crashed)".
+      // A feature row earns "(done)" only when nothing is left undecided
+      // (the CLOSE? verdict); epic rows keep today's logic untouched.
+      const finishedLabel =
+        rowKind !== "feature" || closeV.kind === "safe-to-close";
       annotation =
         FINISHED_PHASE_SET.has(state.phase) &&
-        !(rowKind === "epic-run" && window)
+        !(rowKind === "epic-run" && window) &&
+        finishedLabel
           ? "(done)"
           : AWAITING_HUMAN_PHASE_SET.has(state.phase)
             ? ""
@@ -444,6 +454,7 @@ export async function buildRows(
       prUrl: state.prUrl,
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
       annotation,
+      close: formatCloseCell(closeV, annotation === "(crashed)"),
       needsResumeHint,
       waitForCopilot: state.waitForCopilot === true,
       cost: costs ? costs[i] : undefined,
@@ -481,6 +492,7 @@ export async function buildRows(
       lastActivity:
         window.activity > 0 ? relativeTime(window.activity * 1000, nowMs) : "—",
       annotation: "(no state)",
+      close: "—",
       needsResumeHint: false,
       waitForCopilot: false,
       cost: opts.cost ? EMPTY_COST : undefined,
@@ -509,6 +521,7 @@ function globalManagerRow(
       lastActivity:
         window.activity > 0 ? relativeTime(window.activity * 1000, nowMs) : "—",
       annotation: "",
+      close: "—",
       needsResumeHint: false,
       waitForCopilot: false,
       cost: opts.cost ? EMPTY_COST : undefined,
@@ -539,6 +552,7 @@ function managerRows(
       pr: "—",
       lastActivity: relativeTime(Date.parse(m.heartbeatAt), nowMs),
       annotation: "",
+      close: "—",
       needsResumeHint: false,
       waitForCopilot: false,
       cost: opts.cost ? EMPTY_COST : undefined,
@@ -555,6 +569,39 @@ function lastActivityFrom(
   const ms = Date.parse(updatedAt);
   if (!Number.isFinite(ms)) return "—";
   return relativeTime(ms, nowMs);
+}
+
+/**
+ * The `CLOSE?` cell from the shared close verdict: `yes` when nothing is open,
+ * `no: <why>` when something is, `—` when the row has no verdict (working,
+ * epic, manager, unmanaged). A non-terminal row annotated `(crashed)` reads
+ * `no: crashed`.
+ */
+export function formatCloseCell(v: CloseVerdict, crashed: boolean): string {
+  if (v.kind === "n/a") return "—";
+  if (crashed && v.kind !== "safe-to-close") return "no: crashed";
+  if (v.kind === "safe-to-close") return "yes";
+  if (v.kind === "working") return "—";
+  switch (v.cause) {
+    case "gated":
+      return "no: PR gated";
+    case "stalled":
+      return "no: stalled";
+    case "waiting":
+      return "no: waiting on you";
+    default:
+      return `no: ${v.openItems.length} open`;
+  }
+}
+
+/** Dim footer naming how many windows are safe to close; nothing when none. */
+export function printCloseFooter(rows: Row[]): void {
+  const n = rows.filter((r) => r.close === "yes").length;
+  if (n === 0) return;
+  console.log("");
+  console.log(
+    dim(`${n} window${n === 1 ? "" : "s"} safe to close — flow done --merged`),
+  );
 }
 
 export function formatCostCell(cost: CostBreakdown | undefined): string {
@@ -598,6 +645,7 @@ function printTable(rows: Row[], opts: LsOptions): void {
     { header: "REPO", get: (r) => formatRepoCell(r.repo) },
     { header: "EPIC", get: (r) => formatEpicCell(r.epic) },
     { header: "PHASE", get: (r) => r.phase },
+    { header: "CLOSE?", get: (r) => r.close },
     {
       header: "PR",
       // NAMED EXCEPTION to bin/lib/link.ts's label-equals-raw-target

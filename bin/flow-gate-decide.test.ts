@@ -1389,6 +1389,12 @@ describe("decide() — After merge: items", () => {
     expect(r.afterMerge).toEqual([VERIFIED.slice(6)]);
   });
 
+  it("lists verified After merge items on an externally merged PR", () => {
+    const r = gate(body(VERIFIED, UNVERIFIED), NAMES, { state: "MERGED" });
+    expect(r.decision).toBe("merged-externally");
+    expect(r.afterMerge).toEqual([VERIFIED.slice(6)]);
+  });
+
   it("gates a verified item alongside an ordinary unchecked one, keeping afterMerge", () => {
     const r = gate(body(VERIFIED, "- [ ] Run `npm run x` — ok"));
     expect(r.decision).toBe("gated");

@@ -5,11 +5,13 @@ import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildRows as buildRowsImpl,
+  formatCloseCell,
   formatCostCell,
   formatEpicCell,
   formatKindCell,
   formatNameCell,
   formatRepoCell,
+  printCloseFooter,
   printDetail,
   printOrphanRecovery,
   runLs,
@@ -1407,6 +1409,7 @@ describe("runLs — orphan recovery footnote", () => {
       pr: "—",
       lastActivity: "—",
       annotation: "(crashed)",
+      close: "—",
       needsResumeHint: false,
       waitForCopilot: false,
     };
@@ -1419,6 +1422,7 @@ describe("runLs — orphan recovery footnote", () => {
       pr: "—",
       lastActivity: "—",
       annotation: "",
+      close: "—",
       needsResumeHint: true,
       waitForCopilot: false,
     };
@@ -1439,6 +1443,7 @@ describe("runLs — orphan recovery footnote", () => {
       pr: "—",
       lastActivity: "—",
       annotation: "(crashed)",
+      close: "—",
       needsResumeHint: true,
       waitForCopilot: false,
     };
@@ -1989,5 +1994,116 @@ describe("printDetail", () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe("CLOSE? column", () => {
+  const open = [{ id: 1, title: "t", source: "x", at: "t" }];
+  const rowsFor = (...states: PipelineState[]) => buildRows(states, [], NOW);
+
+  it("reads yes for a merged row with nothing open and keeps (done)", async () => {
+    const [r] = await rowsFor(state({ phase: "merged", kind: "feature" }));
+    expect(r.close).toBe("yes");
+    expect(r.annotation).toBe("(done)");
+  });
+
+  it("reads no: N open for a merged row with open items and drops (done)", async () => {
+    const [r] = await rowsFor(
+      state({
+        phase: "merged",
+        kind: "feature",
+        untracked: [...open, { ...open[0], id: 2 }],
+      }),
+    );
+    expect(r.close).toBe("no: 2 open");
+    expect(r.annotation).toBe("");
+  });
+
+  it("reads a resolved ledger as yes", async () => {
+    const [r] = await rowsFor(
+      state({
+        phase: "cancelled",
+        kind: "feature",
+        untracked: [{ ...open[0], droppedAt: "t" }],
+      }),
+    );
+    expect(r.close).toBe("yes");
+  });
+
+  it("reads no: PR gated, no: stalled and no: waiting on you for those phases", async () => {
+    const rows = await rowsFor(
+      state({ slug: "a", phase: "gated", kind: "feature" }),
+      state({ slug: "b", phase: "needs-human", kind: "feature" }),
+      state({ slug: "c", phase: "plan-pending-review", kind: "feature" }),
+    );
+    expect(rows.map((r) => r.close)).toEqual([
+      "no: PR gated",
+      "no: stalled",
+      "no: waiting on you",
+    ]);
+  });
+
+  it("reads no: crashed for a non-terminal row annotated crashed, and — for a running one", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
+    const crashed = await rowsFor(
+      state({ phase: "implementing", kind: "feature" }),
+    );
+    expect(crashed[0].annotation).toBe("(crashed)");
+    expect(crashed[0].close).toBe("no: crashed");
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
+    const [running] = await rowsFor(
+      state({ phase: "implementing", kind: "feature" }),
+    );
+    expect(running.close).toBe("—");
+  });
+
+  it("keeps epic rows on today's (done) logic with a — cell", async () => {
+    const [r] = await rowsFor(
+      state({ phase: "epic-approved", kind: "epic-design", untracked: open }),
+    );
+    expect(r.close).toBe("—");
+    expect(r.annotation).toBe("(done)");
+  });
+
+  it("formatCloseCell maps a verdict and the crashed flag", () => {
+    expect(
+      formatCloseCell(
+        { kind: "n/a", reason: "", openItems: [], steps: [] },
+        true,
+      ),
+    ).toBe("—");
+    expect(
+      formatCloseCell(
+        { kind: "working", reason: "r", openItems: [], steps: [] },
+        true,
+      ),
+    ).toBe("no: crashed");
+  });
+
+  it("prints a dim footer counting safe-to-close windows, and nothing at zero", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const mk = (close: string): Row => ({
+      name: close,
+      repo: "r",
+      kind: "feature",
+      epic: "",
+      phase: "merged",
+      pr: "—",
+      lastActivity: "—",
+      annotation: "",
+      close,
+      needsResumeHint: false,
+      waitForCopilot: false,
+    });
+    printCloseFooter([mk("no: 1 open")]);
+    expect(log).not.toHaveBeenCalled();
+    printCloseFooter([mk("yes"), mk("yes"), mk("no: 1 open")]);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("2 windows safe to close — flow done --merged");
+    printCloseFooter([mk("yes")]);
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "1 window safe to close",
+    );
+    log.mockRestore();
   });
 });
