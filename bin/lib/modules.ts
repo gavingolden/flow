@@ -273,6 +273,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-plan-review-wait",
       "flow-gemini-lens",
       "flow-gemini-intent-guess",
+      "flow-review-bg",
       "flow-blind-survey",
       "flow-agy-lenses",
       "flow-agy-scout",

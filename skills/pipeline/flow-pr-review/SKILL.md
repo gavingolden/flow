@@ -37,7 +37,7 @@ Helpers (installed globally by `flow install` and on PATH):
 
 - `flow-fetch-pr-review` — fetches PR metadata, description, changed files, review
   summaries, and inline comments from GitHub
-- `flow-pr-diff` — wraps `gh pr diff <number>`, per-file caps each block at 300 source lines. `capDiff` is reused by `flow-review-scope`; direct use is now only the Gemini-lens fallback (L682) — agents Read changed files in full, so the diff is a hint, not the source of truth.
+- `flow-pr-diff` — wraps `gh pr diff <number>`, per-file caps each block at 300 source lines. `capDiff` is reused by `flow-review-scope` — agents Read changed files in full, so the diff is a hint, not the source of truth.
 - `flow-review-scope` — resolves Step 3's `full`/`delta` scope + per-lens gates, writes the capped diff and synthetic gated-lens artifacts.
 - `flow-review-telemetry` — `collect`/`print`: per-lens counts feeding the Step 12 `### Lens telemetry` section.
 - `flow-pr-static-analysis` — runs the consumer's installed static-analysis tools
@@ -545,8 +545,9 @@ subagent rather than landing in the supervisor's transcript.
    `{{EXISTING_INTENT_COMMENTS}}`; absent annotations, the file contains the literal
    `(none — author posted no intent annotations)` — substitute as-is.
 
-7. Collapse padded guidance before any lens launches (Gemini lens included), per
-   [safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md):
+7. Collapse padded guidance before any lens launches, per
+   [safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md)
+   (setup also started the two background Gemini checks on a diff snapshot taken before this collapse):
    `flow-safeguards compact --in-place --no-marker "$WORKTREE/.flow-tmp/diff.txt"` (line count
    preserved, no header line) and `flow-safeguards compact --out-dir "$WORKTREE/.flow-tmp/guidance"
    > "$WORKTREE/.flow-tmp/guidance-copies.json"` over `AGENTS.md`, any `CLAUDE.md`,
@@ -730,13 +731,7 @@ hard-fails the review.
    strict-boolean-`true` rule, so the jq read is the human-readable gate, not
    the runtime authority.
 
-2. **Run the lens** via the PATH helper, launched detached before the Task lens fan-out message and awaited before Step 3.5 (recipe: [references/gemini-lens-run.md](references/gemini-lens-run.md); write `$WORKTREE/.flow-tmp/diff.txt` with `flow-pr-diff "$PR_NUMBER"` if Step 3 prep hasn't; Step 3.5 reuses it) — the helper call the recipe wraps in `flow-spawn --detach`:
-
-   ```bash
-   flow-gemini-lens --worktree "$WORKTREE" \
-     --diff-file "$WORKTREE/.flow-tmp/diff.txt" \
-     --out "$WORKTREE/.flow-tmp/agent-output-gemini.json"
-   ```
+2. **Run the lens.** Setup (`flow-review-prep`) already started `flow-gemini-lens` in the background; after the Task lens fan-out message, run `flow-review-bg wait --worktree "$WORKTREE"` and have the envelope before Step 3.5 (recipe: [references/gemini-lens-run.md](references/gemini-lens-run.md)).
 
    The helper re-gates, runs a primary bounded `flow-delegate` call on the review-lens model (`delegate.models.reviewLens`; `flow config` shows it) (`delegate.timeouts.reviewLens`, default 10m, 20m bound; worktree as `--add-dir`, `--output-format json` + `--json-schema` pinning the wire-level `AGENT_FINDINGS_JSON_SCHEMA`), decodes the response through the `structured_output` → `parseStructured` → naive-salvage ladder in `bin/lib/structured-response.ts`, validates it against the shared agent-finding schema, and finalizes `agent-output-gemini.json` **only on success**. On a `gemini-tools-denied` or `gemini-token-exhausted` skip, it makes exactly ONE bounded fallback retry with a diff-only prompt (no `--add-dir`, no filesystem access, a fixed 2-minute timeout) before giving up — `fallbackAttempted: true` in the envelope marks that this second call was made, and `degraded: "diff-only"` on a successful retry marks that the surviving result came from the weaker no-filesystem-access call.
 

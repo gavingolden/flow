@@ -99,9 +99,11 @@ When `flow-agy-lenses` is delegating (see
 envelope reports as `delegated` from this loop: spawn only the `task`-routed
 lenses up front, then the helper's `fallback` lenses.
 
-Skip the intent-guess spawn when `SCOPE_KIND == delta` AND
-`$WORKTREE/.flow-tmp/intent-resolution.json` already exists from a prior
-run — a delta diff cannot support a fresh purpose guess. Step 3.6 then
+Skip both intent guessers — the Claude agent and the Gemini guess, which
+`flow-review-bg start` skips as `gemini-intent-guess-delta-reentry` — when
+`SCOPE_KIND == delta` AND `$WORKTREE/.flow-tmp/intent-resolution.json`
+already exists from a prior run — a delta diff cannot support a fresh purpose
+guess. Step 3.6 then
 reuses the prior resolution, noted as `intent-guess-skipped: delta
 re-entry, prior resolution reused`.
 

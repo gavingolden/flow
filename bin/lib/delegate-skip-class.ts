@@ -80,6 +80,11 @@ export const ENVIRONMENT_SKIP_REASONS: ReadonlySet<string> = new Set([
   // `bin/flow-agy-lenses.ts`) stop before any agy call for each of these.
   "agy-prep-failed",
   "agy-cooldown",
+  // `flow-review-bg` (bin/lib/review-bg.ts): the background Gemini helpers were
+  // never launched, never installed, or the delta pass skips the intent guess.
+  "gemini-intent-guess-delta-reentry",
+  "gemini-not-launched",
+  "gemini-helper-missing",
   "scout-delegation-off",
   "scout-input-unreadable",
   "scout-prep-failed",

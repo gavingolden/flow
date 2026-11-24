@@ -928,3 +928,98 @@ describe("run — denial relabel is limited to plausible-denial reasons", () => 
     },
   );
 });
+
+describe("run — scratch folders are removed once empty", () => {
+  const realDeps = (over: Partial<Deps>): Partial<Deps> => ({
+    readConfig: () => ENABLED,
+    readFile: (p) => readFileSync(p, "utf8"),
+    writeFile: (p, c) => writeFileSync(p, c),
+    removeFile: (p) => void rmSync(p, { force: true }),
+    mkdirp: (d) => void mkdirSync(d, { recursive: true }),
+    fileExists: (p) => existsSync(p),
+    ...over,
+  });
+  const setup = () => {
+    const wt = mkdtempSync(path.join(tmpdir(), "gemini-intent-guess-scratch-"));
+    const tmp = path.join(wt, ".flow-tmp");
+    mkdirSync(tmp, { recursive: true });
+    const diff = path.join(tmp, "diff.txt");
+    writeFileSync(diff, "diff --git a/src/foo.ts b/src/foo.ts");
+    const out = path.join(tmp, "intent-guess-gemini.json");
+    const argv = ["--worktree", wt, "--diff-file", diff, "--out", out];
+    return { wt, tmp, out, argv };
+  };
+
+  it("removes the per-output and per-helper folders after a success", () => {
+    const { wt, tmp, out, argv } = setup();
+    try {
+      const deps = realDeps({
+        writeOut: () => {},
+        runDelegate: (a) => {
+          const raw = a[a.indexOf("--out") + 1]!;
+          writeFileSync(raw, JSON.stringify(VALID_GUESS));
+          return { ran: true, artifactPath: raw };
+        },
+      });
+      expect(run(argv, deps)).toBe(0);
+      expect(existsSync(out)).toBe(true);
+      expect(
+        existsSync(helperScratchPaths(out, "gemini-intent-guess").dir),
+      ).toBe(false);
+      expect(existsSync(path.join(tmp, "scratch", "gemini-intent-guess"))).toBe(
+        false,
+      );
+    } finally {
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  it("removes the folders after a skip that retains no artifact", () => {
+    const { wt, tmp, out, argv } = setup();
+    try {
+      const deps = realDeps({
+        writeOut: () => {},
+        runDelegate: () => ({ ran: false, skipReason: "agy-not-found" }),
+      });
+      expect(run(argv, deps)).toBe(0);
+      expect(
+        existsSync(helperScratchPaths(out, "gemini-intent-guess").dir),
+      ).toBe(false);
+      expect(existsSync(path.join(tmp, "scratch", "gemini-intent-guess"))).toBe(
+        false,
+      );
+    } finally {
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the folder holding a retained partialArtifactPath", () => {
+    const { wt, out, argv } = setup();
+    try {
+      const lines: string[] = [];
+      const deps = realDeps({
+        writeOut: (l) => lines.push(l),
+        runDelegate: (a) => {
+          const raw = a[a.indexOf("--out") + 1]!;
+          writeFileSync(raw, "not json");
+          return { ran: false, skipReason: "agy-error" };
+        },
+      });
+      expect(run(argv, deps)).toBe(0);
+      const partial = JSON.parse(lines[0]!).partialArtifactPath as string;
+      expect(existsSync(partial)).toBe(true);
+      expect(
+        existsSync(helperScratchPaths(out, "gemini-intent-guess").dir),
+      ).toBe(true);
+    } finally {
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  it("passes both folders to the injected removeDir, per-output first", () => {
+    const removed: string[] = [];
+    const deps = makeDeps({ removeDir: (d) => void removed.push(d) });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(removed).toEqual([SCRATCH.dir, path.dirname(SCRATCH.dir)]);
+  });
+});

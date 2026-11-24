@@ -11,7 +11,8 @@ import { readPipelineSkillDoc } from "./lib/pipeline-skill-corpus";
  * helper can outlast one tool call (the 600000 ms Bash cap) launches it with
  * `flow-spawn --detach` and waits with `flow-plan-review-wait --complete-line
  * --pid` — never as one blocking tool call. Table-driven so a new site is one
- * row.
+ * row. The two Gemini helpers are the exception: `flow-review-bg` launches and
+ * supervises them, so their pages only wait and branch.
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -51,22 +52,6 @@ const SITES: Site[] = [
     read: () => readPipelineSkillDoc("references/phases/step-03-plan.md"),
     helper: "flow-research-run",
     carriesRecipe: false,
-  },
-  {
-    name: "Gemini review lens (gemini-lens-run.md)",
-    read: () =>
-      repoDoc("skills/pipeline/flow-pr-review/references/gemini-lens-run.md"),
-    helper: "flow-gemini-lens",
-    carriesRecipe: true,
-  },
-  {
-    name: "intent guess (intent-mismatch-resolution.md)",
-    read: () =>
-      repoDoc(
-        "skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md",
-      ),
-    helper: "flow-gemini-intent-guess",
-    carriesRecipe: true,
   },
   {
     name: "discovery research (discovery-research.md)",
@@ -159,12 +144,40 @@ describe.each(SITES)("long delegate call site: $name", (site) => {
   );
 });
 
+describe.each([
+  [
+    "Gemini review lens (gemini-lens-run.md)",
+    "skills/pipeline/flow-pr-review/references/gemini-lens-run.md",
+  ],
+  [
+    "intent guess (intent-mismatch-resolution.md)",
+    "skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md",
+  ],
+])("background Gemini helper page: %s", (_name, rel) => {
+  const text = repoDoc(rel);
+
+  it("points at flow-review-bg wait", () => {
+    expect(text).toMatch(/flow-review-bg wait|gemini-lens-run\.md/);
+    if (rel.endsWith("gemini-lens-run.md")) {
+      expect(text).toContain("flow-review-bg wait");
+    }
+  });
+
+  it.each(["flow-spawn --detach", "kill -- -", ".pid"])(
+    "carries no hand-typed launch shell (%s)",
+    (needle) => {
+      expect(text).not.toContain(needle);
+    },
+  );
+});
+
 describe("flow-pr-review/SKILL.md", () => {
   const skill = repoDoc("skills/pipeline/flow-pr-review/SKILL.md");
 
-  it("points the Gemini lens at its launch-and-wait recipe", () => {
+  it("points the Gemini lens at the flow-review-bg wait page", () => {
     expect(skill).toContain("references/gemini-lens-run.md");
-    expect(skill).toContain("flow-spawn --detach");
+    expect(skill).toContain("flow-review-bg wait");
+    expect(skill).not.toContain("flow-spawn --detach");
   });
 
   it("no longer clamps the lens to a 9m sync ceiling under one tool call", () => {

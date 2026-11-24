@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   FLOW_EXEC_REVIEW_ALLOW_RULES,
+  FLOW_REVIEW_BG_ALLOW_RULES,
   FLOW_NARROW_ALLOW_RULES,
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
@@ -104,6 +105,13 @@ describe("FLOW_EXEC_REVIEW_ALLOW_RULES", () => {
 
   it("is not part of the routine bare-plus-wildcard helper list", () => {
     expect(FLOW_ROUTINE_HELPERS).not.toContain("flow-exec-review");
+  });
+});
+
+describe("FLOW_REVIEW_BG_ALLOW_RULES", () => {
+  it("pre-approves only the wait subcommand, never start or supervise", () => {
+    expect(FLOW_REVIEW_BG_ALLOW_RULES).toEqual(["Bash(flow-review-bg wait *)"]);
+    expect(FLOW_ROUTINE_HELPERS).not.toContain("flow-review-bg");
   });
 });
 

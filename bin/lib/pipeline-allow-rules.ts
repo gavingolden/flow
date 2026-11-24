@@ -124,3 +124,12 @@ export const FLOW_EXEC_REVIEW_ALLOW_RULES: readonly string[] = [
   "Bash(flow-exec-review stamp-check *)",
   "Bash(flow-exec-review ruling *)",
 ];
+
+/**
+ * `flow-review-bg wait` only. `start` runs inside `flow-review-prep` and
+ * `supervise` under `flow-spawn`, so neither needs a pre-approval — a blanket
+ * rule would hand the state-file-driven `supervise` verb to the classifier-exempt path.
+ */
+export const FLOW_REVIEW_BG_ALLOW_RULES: readonly string[] = [
+  "Bash(flow-review-bg wait *)",
+];

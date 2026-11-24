@@ -47,46 +47,11 @@ type == "object") and (.review.gemini == true)' ~/.flow/config.json`).
 It is independent of the Cross-model (Gemini) lens call (different
 prompt, different `--out` path, no data dependency between them).
 
-Its agy call (`delegate.timeouts.intentGuess`, default 10m, 20m sanity bound
-— see `docs/configuration.md`'s "Delegate timeouts" section) is longer than
-one tool call lasts, so it runs detached: launch it in the same message as
-the Gemini lens launch (see [gemini-lens-run.md](gemini-lens-run.md)),
-BEFORE the Step 3 Task lens fan-out message, and wait for its envelope
-before Step 3.5. Shell variables do not survive between Bash calls, so the
-recipe persists the pid and start time under `.flow-tmp/`. The `rm -f` is
-load-bearing: a stale envelope would satisfy the waiter instantly.
-
-```bash
-INTENT_ENV="$WORKTREE/.flow-tmp/intent-guess-envelope.json"
-rm -f "$INTENT_ENV" "$WORKTREE/.flow-tmp/intent-guess-gemini.json"
-date +%s > "$WORKTREE/.flow-tmp/intent-guess-gemini.start"
-PID=$(flow-spawn --detach --stdout "$INTENT_ENV" \
-  --stderr "$WORKTREE/.flow-tmp/intent-guess-gemini.log" -- \
-  flow-gemini-intent-guess --worktree "$WORKTREE" \
-  --diff-file "$WORKTREE/.flow-tmp/diff.txt" \
-  --out "$WORKTREE/.flow-tmp/intent-guess-gemini.json")
-echo "$PID" > "$WORKTREE/.flow-tmp/intent-guess-gemini.pid"
-```
-
-After the Task fan-out returns, wait (re-run this Bash call, with the Bash
-tool's `timeout` set to `600000`, until it ends the wait):
-
-```bash
-INTENT_ENV="$WORKTREE/.flow-tmp/intent-guess-envelope.json"
-PID=$(cat "$WORKTREE/.flow-tmp/intent-guess-gemini.pid")
-flow-plan-review-wait "$INTENT_ENV" --complete-line --pid "$PID" --max-sec 540
-echo "elapsed: $(( $(date +%s) - $(cat "$WORKTREE/.flow-tmp/intent-guess-gemini.start") ))s"
-```
-
-On `"outcome":"complete"` read the envelope (`cat "$WORKTREE/.flow-tmp/intent-guess-envelope.json"`) and branch
-as below. On `process-exited-without-result` record `ran: false` with
-`skipReason` `helper-exited-without-envelope` and proceed with only the
-diff-only guess. On `timeout`, re-run the wait until the **give-up time** —
-the intent limit + 5 minutes since the start time (15 minutes at the default
-10m). Past it, kill the helper's process group
-(`kill -- -"$(cat "$WORKTREE/.flow-tmp/intent-guess-gemini.pid")"`; `$PID` is
-unset in a later Bash call), record
-`ran: false` with `skipReason` `intent-guess-timeout` and `skipClass` `ran-unusable`, and proceed with only the diff-only guess.
+Setup (`flow-review-prep`) already started it in the background, and a
+watchdog enforces its give-up; wait for its envelope with the single
+`flow-review-bg wait` call described in [gemini-lens-run.md](gemini-lens-run.md),
+before Step 3.5. A helper-exited or timed-out guess (`ran: false`,
+`skipClass` `ran-unusable`) proceeds with only the diff-only guess.
 
 Branch on the helper's `{ran}` stdout envelope, never the exit code (it
 exits 0 on every graceful path): `ran: true` → `intent-guess-gemini.json`

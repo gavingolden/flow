@@ -86,7 +86,10 @@ import {
   parseDelegateRun,
   type DelegateEnvelope,
 } from "./lib/delegate-run-envelope";
-import { helperScratchPaths } from "./lib/helper-scratch";
+import {
+  helperScratchPaths,
+  removeEmptyScratchDirs,
+} from "./lib/helper-scratch";
 import type { AgentFindings } from "./lib/agent-finding-schema";
 
 // Re-exported so existing importers (the test suite) keep resolving the wire
@@ -250,6 +253,7 @@ export type Deps = {
   readFile: (path: string) => string;
   writeFile: (path: string, contents: string) => void;
   removeFile: (path: string) => void;
+  removeDir?: (dir: string) => void;
   mkdirp: (dir: string) => void;
   writeOut: (line: string) => void;
   fileExists: (path: string) => boolean;
@@ -320,6 +324,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     for (const p of [promptPath, rawPath, retryRawPath, schemaPath]) {
       if (!retainSet.has(p)) deps.removeFile(p);
     }
+    removeEmptyScratchDirs(scratch, deps.removeDir);
   };
   // diag carries the flow-delegate envelope's own diagnostics through to
   // this helper's skip envelope, omit-when-absent; partialArtifactPath is
@@ -573,6 +578,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
     writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),
     removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
+    removeDir: o?.removeDir,
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
     fileExists: o?.fileExists ?? ((p) => existsSync(p)),

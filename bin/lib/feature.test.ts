@@ -150,6 +150,7 @@ import {
 } from "./merge-allow-rule";
 import {
   FLOW_EXEC_REVIEW_ALLOW_RULES,
+  FLOW_REVIEW_BG_ALLOW_RULES,
   FLOW_NARROW_ALLOW_RULES,
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
@@ -4675,6 +4676,14 @@ describe("ensureLaunchSettings hook-command resolution", () => {
         ...(FLOW_NARROW_ALLOW_RULES[h] ?? []),
       ]);
     }
+  });
+
+  it("pre-approves only flow-review-bg wait", () => {
+    ensureLaunchSettings(settingsPath);
+    const { allow } = readPermissions();
+    expect(allow.filter((r) => r.startsWith("Bash(flow-review-bg"))).toEqual([
+      ...FLOW_REVIEW_BG_ALLOW_RULES,
+    ]);
   });
 
   it("writes the grant deny rules and pre-approves only the narrow exec-review subcommands", () => {

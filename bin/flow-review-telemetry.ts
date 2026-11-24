@@ -23,6 +23,7 @@
 import * as fs from "node:fs";
 import { currentHome } from "./lib/paths";
 import * as path from "node:path";
+import { readReviewBgState, resolveGeminiSkip } from "./lib/review-bg-state";
 import { findSubagentsDir } from "./lib/session-discovery";
 import {
   aggregateCounts,
@@ -328,11 +329,41 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
     ),
     scopeRaw ? startedAt : null,
   );
+  const tmpDir = path.join(args.worktree, ".flow-tmp");
+  const bgState = readReviewBgState(
+    deps.readFile(path.join(tmpDir, "review-bg.json")),
+  );
+  const lensSkip = resolveGeminiSkip(
+    "gemini-lens",
+    bgState,
+    deps.readFile(path.join(tmpDir, "gemini-lens-envelope.json")),
+    scope.head_sha,
+  );
+  const guessSkip = resolveGeminiSkip(
+    "gemini-intent-guess",
+    bgState,
+    deps.readFile(path.join(tmpDir, "intent-guess-envelope.json")),
+    scope.head_sha,
+  );
+  // A lens nobody waited on never reached consolidation, even if its output
+  // landed afterwards: report it as skipped, not as a run that lost findings.
+  if (lensSkip.skip_reason === "gemini-not-awaited") {
+    agentOutputs.gemini = null;
+  }
   const counts = aggregateCounts({
     agentOutputs,
     consolidator,
     fixApplier,
     delegation,
+    skipDetail:
+      !lensSkip.ran && lensSkip.skip_reason && lensSkip.skip_class
+        ? {
+            gemini: {
+              skip_reason: lensSkip.skip_reason,
+              skip_class: lensSkip.skip_class,
+            },
+          }
+        : undefined,
   });
 
   const telemetry = mergeTelemetry({
@@ -343,6 +374,7 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
     scope,
     widened: { value: !!args.widened, reason: args.widened ?? null },
     counts,
+    intentGuess: guessSkip,
     lensTokens,
     lensModels,
     transcripts,
@@ -391,6 +423,14 @@ export function renderTable(t: ReviewTelemetry): string {
       `| ${lens} | ${l.ran ? "yes" : "no"} | ${modelStr} | ${tokensStr} | ${l.findings_emitted} | ${l.findings_survived} | ${l.findings_acted} | ${l.findings_deferred} | ${skipReason} |`,
     );
     if (l.ran && l.tokens_source === "unavailable") unavailableCount++;
+  }
+  if (t.intent_guess) {
+    lines.push("");
+    lines.push(
+      t.intent_guess.ran
+        ? "intent guess (Gemini): ran"
+        : `intent guess (Gemini): skipped — ${t.intent_guess.skip_reason ?? "unknown"}`,
+    );
   }
   if (unavailableCount > 0) {
     lines.push("");

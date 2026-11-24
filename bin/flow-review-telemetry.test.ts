@@ -95,7 +95,7 @@ describe("collect", () => {
         "utf8",
       ),
     );
-    expect(telemetry.version).toBe(4);
+    expect(telemetry.version).toBe(5);
     expect(telemetry.lenses["bug-detection"].context_tokens).toBe(999);
     expect(telemetry.lenses["bug-detection"].tokens).toBeNull();
     expect(telemetry.lenses["bug-detection"].tokens_source).toBe("unavailable");
@@ -394,7 +394,7 @@ describe("print", () => {
     overrides: Partial<ReviewTelemetry> = {},
   ): ReviewTelemetry {
     return {
-      version: 4,
+      version: 5,
       run_id: "10:abc:2026",
       ts: "2026-01-01T00:00:00.000Z",
       repo: "flow",
@@ -409,10 +409,12 @@ describe("print", () => {
         delta_ratio: 0.1,
       },
       widened: { value: false, reason: null },
+      intent_guess: null,
       lenses: {
         "bug-detection": {
           ran: true,
           skip_reason: null,
+          skip_class: null,
           model: null,
           effort: null,
           tokens: { total: 100 },
@@ -439,6 +441,7 @@ describe("print", () => {
         "bug-detection": {
           ran: true,
           skip_reason: null,
+          skip_class: null,
           model: null,
           effort: null,
           tokens: null,
@@ -467,6 +470,7 @@ describe("print", () => {
         "bug-detection": {
           ran: false,
           skip_reason: "docs-only",
+          skip_class: null,
           model: null,
           effort: null,
           tokens: null,
@@ -493,6 +497,7 @@ describe("print", () => {
         "bug-detection": {
           ran: true,
           skip_reason: null,
+          skip_class: null,
           model: "opus",
           effort: null,
           tokens: { total: 100 },
@@ -511,6 +516,7 @@ describe("print", () => {
         security: {
           ran: true,
           skip_reason: null,
+          skip_class: null,
           model: null,
           effort: null,
           tokens: { total: 50 },
@@ -560,5 +566,194 @@ describe("executable bit", () => {
   it("is executable", () => {
     const p = path.join(import.meta.dirname ?? ".", "flow-review-telemetry.ts");
     expect(fs.statSync(p).mode & 0o111).not.toBe(0);
+  });
+});
+
+describe("background Gemini skip detail", () => {
+  const helper = (status: string, outcome: string, extra = {}) => ({
+    status,
+    outcome,
+    startedAtSec: 0,
+    giveUpAtSec: null,
+    envelope: "/e",
+    out: "/o",
+    log: "/l",
+    ...extra,
+  });
+  const seed = (
+    dir: string,
+    opts: {
+      head?: string;
+      lensEnvelope?: string;
+      guessEnvelope?: string;
+      lens?: ReturnType<typeof helper>;
+      guess?: ReturnType<typeof helper>;
+      noState?: boolean;
+      awaited?: boolean;
+    },
+  ) => {
+    const tmp = path.join(dir, ".flow-tmp");
+    fs.writeFileSync(
+      path.join(tmp, "review-scope.json"),
+      JSON.stringify({
+        scope: "full",
+        base_sha: null,
+        head_sha: "H1",
+        delta_files: [],
+        delta_ratio: null,
+        started_at: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    if (!opts.noState) {
+      fs.writeFileSync(
+        path.join(tmp, "review-bg.json"),
+        JSON.stringify({
+          version: 1,
+          generation: "g",
+          head_sha: opts.head ?? "H1",
+          scope: "full",
+          review_started_at: null,
+          configPath: "/c",
+          ...(opts.awaited === false ? {} : { awaitedAt: 1 }),
+          watchdog: null,
+          diffSnapshot: null,
+          helpers: {
+            "gemini-lens": opts.lens ?? helper("done", "complete"),
+            "gemini-intent-guess": opts.guess ?? helper("done", "complete"),
+          },
+        }),
+      );
+    }
+    if (opts.lensEnvelope !== undefined) {
+      fs.writeFileSync(
+        path.join(tmp, "gemini-lens-envelope.json"),
+        opts.lensEnvelope,
+      );
+    }
+    if (opts.guessEnvelope !== undefined) {
+      fs.writeFileSync(
+        path.join(tmp, "intent-guess-envelope.json"),
+        opts.guessEnvelope,
+      );
+    }
+  };
+  const collect = async (dir: string): Promise<ReviewTelemetry> => {
+    expect(
+      await run(["collect", "--worktree", dir, "--pr", "10"], makeDeps()),
+    ).toBe(0);
+    return JSON.parse(
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
+    );
+  };
+
+  it("carries the envelope's real skip reason and class for a missing Gemini lens", async () => {
+    const dir = makeWorktree();
+    seed(dir, {
+      lensEnvelope:
+        '{"ran":false,"skipReason":"lens-timeout","skipClass":"ran-unusable"}\n',
+      guessEnvelope: '{"ran":true}\n',
+    });
+    const t = await collect(dir);
+    expect(t.lenses.gemini).toMatchObject({
+      ran: false,
+      skip_reason: "lens-timeout",
+      skip_class: "ran-unusable",
+    });
+    expect(t.lenses["bug-detection"].skip_reason).toBe("no artifact");
+    expect(t.lenses["bug-detection"].skip_class).toBeNull();
+    expect(t.intent_guess).toEqual({
+      ran: true,
+      skip_reason: null,
+      skip_class: null,
+    });
+  });
+
+  it("names gemini-not-launched when no state exists for the head", async () => {
+    const dir = makeWorktree();
+    seed(dir, { noState: true });
+    const t = await collect(dir);
+    expect(t.lenses.gemini).toMatchObject({
+      skip_reason: "gemini-not-launched",
+      skip_class: "environment",
+    });
+    expect(t.intent_guess?.skip_reason).toBe("gemini-not-launched");
+  });
+
+  it("names gemini-not-awaited when the lens was still running with no envelope", async () => {
+    const dir = makeWorktree();
+    seed(dir, { lens: helper("running", "pending") });
+    const t = await collect(dir);
+    expect(t.lenses.gemini).toMatchObject({
+      skip_reason: "gemini-not-awaited",
+      skip_class: "ran-unusable",
+    });
+  });
+
+  it("names gemini-not-awaited when the lens finished after nobody waited", async () => {
+    const dir = makeWorktree();
+    seed(dir, { awaited: false, lensEnvelope: '{"ran":true}\n' });
+    fs.writeFileSync(
+      path.join(dir, ".flow-tmp", "agent-output-gemini.json"),
+      JSON.stringify({ findings: [{ file: "a", line: 1 }] }),
+    );
+    const t = await collect(dir);
+    expect(t.lenses.gemini).toMatchObject({
+      ran: false,
+      skip_reason: "gemini-not-awaited",
+      findings_emitted: 0,
+    });
+  });
+
+  it("still matches a widened pass: the same head_sha keeps the state", async () => {
+    const dir = makeWorktree();
+    seed(dir, {
+      guess: helper("skipped", "skipped", {
+        skipReason: "gemini-intent-guess-delta-reentry",
+        skipClass: "environment",
+      }),
+      lensEnvelope: '{"ran":true}\n',
+    });
+    const code = await run(
+      ["collect", "--worktree", dir, "--pr", "10", "--widened", "stale delta"],
+      makeDeps(),
+    );
+    expect(code).toBe(0);
+    const t: ReviewTelemetry = JSON.parse(
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
+    );
+    expect(t.intent_guess).toEqual({
+      ran: false,
+      skip_reason: "gemini-intent-guess-delta-reentry",
+      skip_class: "environment",
+    });
+  });
+
+  it("prints the intent-guess line under the lens table", () => {
+    const base = {
+      ran: false,
+      skip_reason: "agy-cooldown",
+      skip_class: "environment",
+    };
+    const ran = renderTable({
+      ...(JSON.parse("{}") as ReviewTelemetry),
+      scope: { kind: "full", delta_files: 0 },
+      widened: { value: false, reason: null },
+      lenses: {},
+      intent_guess: { ran: true, skip_reason: null, skip_class: null },
+    } as unknown as ReviewTelemetry);
+    expect(ran).toContain("intent guess (Gemini): ran");
+    const skipped = renderTable({
+      scope: { kind: "full", delta_files: 0 },
+      widened: { value: false, reason: null },
+      lenses: {},
+      intent_guess: base,
+    } as unknown as ReviewTelemetry);
+    expect(skipped).toContain("intent guess (Gemini): skipped — agy-cooldown");
   });
 });

@@ -1,70 +1,60 @@
-# Cross-model (Gemini) lens — launch and wait (Step 3)
+# Background Gemini checks — wait and branch (Step 3)
 
-The `review.gemini`-gated `flow-gemini-lens` helper makes one primary agy call
-(`delegate.timeouts.reviewLens`, default 10m, 20m sanity bound — see
-`docs/configuration.md`'s "Delegate timeouts" section) plus, on a
-`gemini-tools-denied` or `gemini-token-exhausted` skip, one fixed 2-minute
-diff-only retry. That is longer than one tool call lasts, so Step 3 runs it
-detached: launch before the Task lens fan-out message, wait after it, and have
-the envelope in hand before Step 3.5. The Gemini lens and the cross-model
-intent guess (see
-[intent-mismatch-resolution.md](intent-mismatch-resolution.md)) are
-independent — launch both, in the same message, before the fan-out.
+Two `review.gemini`-gated helpers run in the background for every open-PR
+review: the cross-model (Gemini) lens, `flow-gemini-lens`, and the cross-model
+intent guess, `flow-gemini-intent-guess` (see
+[intent-mismatch-resolution.md](intent-mismatch-resolution.md)). Each makes an
+agy call longer than one tool call lasts (`delegate.timeouts.reviewLens` /
+`intentGuess`, default 10m, 20m sanity bound — see `docs/configuration.md`'s
+"Delegate timeouts" section; the lens adds one fixed 2-minute diff-only retry
+on a `gemini-tools-denied` or `gemini-token-exhausted` skip).
 
-Shell variables do not survive between Bash calls, so the recipe persists the
-pid and start time under `.flow-tmp/`.
+You launch nothing and kill nothing. Setup (`flow-review-prep`) already ran
+`flow-review-bg start`, which gates on `review.gemini` (strictly `true`; the
+helpers re-gate internally) and starts both helpers on a diff snapshot, and a
+background watchdog enforces each give-up (17 minutes for the lens, 15 for the
+guess, at the default limits; derived from `delegate.timeouts`). Neither helper
+is one of the six mandatory Claude lenses, so a missing result never escalates
+`consolidator-missing-artifact`; a failure is a graceful skip and the review
+proceeds with the Claude lenses unchanged.
 
-## Launch (before the Task lens fan-out message)
+Stale results are cleared by exact name only — `flow-review-scope` and
+`flow-review-prep` for the reviewers, `flow-review-bg start` for these two.
+Never glob-delete in `.flow-tmp/` while a review runs: the background helpers
+keep live working files under `.flow-tmp/scratch/`.
 
-Gate on the `review.gemini` jq read from `SKILL.md` first. Write
-`$WORKTREE/.flow-tmp/diff.txt` with `flow-pr-diff "$PR_NUMBER"` if Step 3 prep
-hasn't. The `rm -f` is load-bearing: a stale envelope or output from an
-earlier pass would satisfy the waiter instantly.
+## Wait (after the Task lens fan-out returns, before Step 3.5)
 
-Stale results are cleared by exact name only — `flow-review-scope` and `flow-review-prep` for the reviewers, the `rm -f` below for this one. Never glob-delete in `.flow-tmp/` while a review runs: the background helpers keep live working files under `.flow-tmp/scratch/`.
-
-```bash
-LENS_ENV="$WORKTREE/.flow-tmp/gemini-lens-envelope.json"
-rm -f "$LENS_ENV" "$WORKTREE/.flow-tmp/agent-output-gemini.json"
-date +%s > "$WORKTREE/.flow-tmp/gemini-lens.start"
-PID=$(flow-spawn --detach --stdout "$LENS_ENV" \
-  --stderr "$WORKTREE/.flow-tmp/gemini-lens.log" -- \
-  flow-gemini-lens --worktree "$WORKTREE" \
-  --diff-file "$WORKTREE/.flow-tmp/diff.txt" \
-  --out "$WORKTREE/.flow-tmp/agent-output-gemini.json")
-echo "$PID" > "$WORKTREE/.flow-tmp/gemini-lens.pid"
-```
-
-Then send the Step 3 Task lens fan-out message as usual.
-
-## Wait (after the fan-out returns, before Step 3.5)
-
-Re-run this Bash call (with the Bash tool's `timeout` set to `600000`) until
-it ends the wait. `flow-gemini-lens` prints its envelope as one JSON line plus
-a newline, so `--complete-line` means "the envelope is whole":
+Send the Step 3 Task lens fan-out message first, then run this once per Bash
+call, with the Bash tool's `timeout` set to `600000`, and re-run it while
+`.done` is `false`:
 
 ```bash
-LENS_ENV="$WORKTREE/.flow-tmp/gemini-lens-envelope.json"
-PID=$(cat "$WORKTREE/.flow-tmp/gemini-lens.pid")
-flow-plan-review-wait "$LENS_ENV" --complete-line --pid "$PID" --max-sec 540
-echo "elapsed: $(( $(date +%s) - $(cat "$WORKTREE/.flow-tmp/gemini-lens.start") ))s"
+flow-review-bg wait --worktree "$WORKTREE"
 ```
 
-The waiter prints one `{"outcome": …}` line:
+It prints one JSON line `{done, elapsedSec, helpers: {"gemini-lens": …,
+"gemini-intent-guess": …}}`, never launches anything, and exits 0 on every
+outcome. Each helper entry carries `outcome`, `ran`, the helper's own envelope
+fields, and `skipReason` / `skipClass` when it did not run.
 
-- **`complete`** — read the envelope (`cat "$WORKTREE/.flow-tmp/gemini-lens-envelope.json"`) and branch on its
-  `{ran}` field as `SKILL.md` describes, never the exit code.
-- **`process-exited-without-result`** — the helper exited without printing an
-  envelope. Record `ran: false` with `skipReason`
-  `helper-exited-without-envelope` and proceed without the lens.
-- **`timeout`** (the 540 s step ran out) — re-run the wait until the
-  **give-up time**: the lens limit + the 2-minute retry + 5 minutes since the
-  start time (17 minutes at the default 10m). Past it, kill the helper's
-  process group (`kill -- -"$(cat "$WORKTREE/.flow-tmp/gemini-lens.pid")"`;
-  `$PID` is unset in a later Bash call), record `ran: false` with `skipReason`
-  `lens-timeout` (`skipClass: ran-unusable`) and proceed without the lens.
+Skipping the wait means Gemini's findings are not guaranteed to reach Step 3.5,
+and Step 12's lens table shows `gemini-not-awaited` whether or not the lens
+finished on its own later (the first `wait` call stamps the run as awaited).
 
-Wait for the lens envelope and, when it was launched, the intent-guess
-envelope. The two helpers run concurrently, so waiting on them one after the
-other costs only the slower one. Neither is one of the six mandatory Claude
-lenses, so a missing result never escalates `consolidator-missing-artifact`.
+## Branch per helper
+
+Branch on `ran`, never the exit code:
+
+- **`ran: true`** — the lens's `agent-output-gemini.json` (or the guess's
+  `intent-guess-gemini.json`) is schema-valid; proceed as `SKILL.md` Step 3
+  and the intent page describe.
+- **`ran: false`** — record `skipReason` and `skipClass`, reported distinctly
+  per `SKILL.md`, and proceed without that helper. The reasons you will see
+  beyond the helpers' own: `gemini-lens-disabled` /
+  `gemini-intent-guess-disabled` (gate off), `agy-cooldown`,
+  `gemini-intent-guess-delta-reentry` (a delta pass reuses the prior intent
+  resolution), `gemini-not-launched` / `gemini-helper-missing` (setup did not
+  start the helpers), and — `ran-unusable` — `lens-timeout` /
+  `intent-guess-timeout` (the watchdog gave up and stopped the helper) and
+  `helper-exited-without-envelope`.

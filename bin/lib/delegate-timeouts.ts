@@ -3,9 +3,10 @@
  * `delegate.timeouts` table, mirroring `delegate-models.ts`'s shape.
  *
  * The delegate calls this module sizes (`flow-gemini-lens`,
- * `flow-gemini-intent-guess`) are launched detached (`flow-spawn --detach`)
- * and awaited with `flow-plan-review-wait`, so no Bash tool call's
- * 600000ms/10m timeout bounds them. `DELEGATE_TIMEOUT_CEILING` ("20m") is a
+ * `flow-gemini-intent-guess`) are started in the background by
+ * `flow-review-bg start` (a watchdog enforces their give-up) and awaited
+ * with `flow-review-bg wait`, so no Bash tool call's 600000ms/10m timeout
+ * bounds them. `DELEGATE_TIMEOUT_CEILING` ("20m") is a
  * sanity bound, not a tool-call limit: it stops a typo like "200m" from
  * holding a pipeline for hours, and `resolveDelegateTimeout` always warns
  * before silently clamping down to it.

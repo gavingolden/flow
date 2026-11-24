@@ -29,9 +29,18 @@ export type TokenUsage = {
   output?: number;
 };
 
+export type IntentGuessTelemetry = {
+  ran: boolean;
+  skip_reason: string | null;
+  skip_class: string | null;
+};
+
 export type LensTelemetry = {
   ran: boolean;
   skip_reason: string | null;
+  // "environment" or "ran-unusable" for a skipped lens whose class is known;
+  // null when the lens ran, was gated, or has no recorded class.
+  skip_class: string | null;
   model: string | null;
   // The effort level with the most turns in the lens transcript; null for no
   // transcript, an agy-delegated lens, or a transcript with no recorded effort.
@@ -117,7 +126,7 @@ export function readDelegationRecord(
 }
 
 export type ReviewTelemetry = {
-  version: 4;
+  version: 5;
   run_id: string;
   ts: string;
   repo: string;
@@ -132,6 +141,8 @@ export type ReviewTelemetry = {
     delta_ratio: number | null;
   };
   widened: { value: boolean; reason: string | null };
+  // The Gemini intent guess is not a lens; null when it was never resolved.
+  intent_guess: IntentGuessTelemetry | null;
   lenses: Record<string, LensTelemetry>;
 };
 
@@ -180,6 +191,7 @@ type CountsEntry = Pick<
   | "findings_deferred"
   | "ran"
   | "skip_reason"
+  | "skip_class"
   | "engine"
   | "agy_model"
   | "rerouted_from"
@@ -201,17 +213,20 @@ export function aggregateCounts(inputs: {
   consolidator: ConsolidatorResult | null;
   fixApplier: FixApplierResult | null;
   delegation?: Record<string, LensDelegation>;
+  skipDetail?: Record<string, { skip_reason: string; skip_class: string }>;
 }): Record<string, CountsEntry> {
   const out: Record<string, CountsEntry> = {};
 
   for (const [lens, output] of Object.entries(inputs.agentOutputs)) {
     let ran = true;
     let skip_reason: string | null = null;
+    let skip_class: string | null = null;
     let findings_emitted = 0;
 
     if (output === null || output === undefined) {
       ran = false;
-      skip_reason = "no artifact";
+      skip_reason = inputs.skipDetail?.[lens]?.skip_reason ?? "no artifact";
+      skip_class = inputs.skipDetail?.[lens]?.skip_class ?? null;
     } else if (isGated(output)) {
       ran = false;
       skip_reason = output.gated.reason;
@@ -254,6 +269,7 @@ export function aggregateCounts(inputs: {
     out[lens] = {
       ran,
       skip_reason,
+      skip_class,
       findings_emitted,
       findings_survived: survived,
       findings_dropped: dropped,
@@ -400,6 +416,7 @@ export function mergeTelemetry(args: {
   };
   widened: { value: boolean; reason: string | null };
   counts: Record<string, CountsEntry>;
+  intentGuess?: IntentGuessTelemetry | null;
   lensTokens: Record<string, number>;
   lensModels?: Record<string, string>;
   transcripts: Record<
@@ -414,6 +431,7 @@ export function mergeTelemetry(args: {
     const counts = args.counts[lens] ?? {
       ran: false,
       skip_reason: "no artifact",
+      skip_class: null,
       findings_emitted: 0,
       findings_survived: 0,
       findings_dropped: 0,
@@ -439,6 +457,7 @@ export function mergeTelemetry(args: {
     lenses[lens] = {
       ran: counts.ran,
       skip_reason: counts.skip_reason,
+      skip_class: counts.skip_class,
       model,
       effort:
         counts.engine === "agy"
@@ -460,7 +479,7 @@ export function mergeTelemetry(args: {
   }
 
   return {
-    version: 4,
+    version: 5,
     run_id: `${args.pr}:${args.scope.head_sha}:${args.startedAt}`,
     ts: new Date().toISOString(),
     repo: args.repo,
@@ -475,6 +494,7 @@ export function mergeTelemetry(args: {
       delta_ratio: args.scope.delta_ratio,
     },
     widened: args.widened,
+    intent_guess: args.intentGuess ?? null,
     lenses,
   };
 }
