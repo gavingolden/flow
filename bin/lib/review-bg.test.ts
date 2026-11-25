@@ -21,6 +21,8 @@ const CONFIG = "/cfg.json";
 function makeIO(seed: Record<string, string> = {}) {
   const files = new Map<string, string>(Object.entries(seed));
   const removed: string[] = [];
+  const mkdirs: string[] = [];
+  const removedDirs: string[] = [];
   const io: StateIO = {
     readFile: (p) => files.get(p) ?? null,
     writeFile: (p, c) => void files.set(p, c),
@@ -32,19 +34,19 @@ function makeIO(seed: Record<string, string> = {}) {
       removed.push(p);
       files.delete(p);
     },
-    removeDir: () => {},
-    mkdirp: () => {},
+    removeDir: (d) => void removedDirs.push(d),
+    mkdirp: (d) => void mkdirs.push(d),
     fileExists: (p) => files.has(p),
     copyFile: (a, b) => {
       if (!files.has(a)) throw new Error("ENOENT");
       files.set(b, files.get(a)!);
     },
   };
-  return { io, files, removed };
+  return { io, files, removed, mkdirs, removedDirs };
 }
 
 function makeDeps(seed: Record<string, string>, over: Partial<StartDeps> = {}) {
-  const { io, files, removed } = makeIO({
+  const { io, files, removed, mkdirs, removedDirs } = makeIO({
     [P.reviewScope]: SCOPE(),
     [P.diff]: "diff",
     [CONFIG]: ENABLED,
@@ -67,7 +69,7 @@ function makeDeps(seed: Record<string, string>, over: Partial<StartDeps> = {}) {
     mintGeneration: () => "gen-new",
     ...over,
   };
-  return { deps, files, removed, runs, kills };
+  return { deps, files, removed, mkdirs, removedDirs, runs, kills };
 }
 
 const start = (d: ReturnType<typeof makeDeps>) =>
@@ -127,6 +129,23 @@ describe("startHelpers launch", () => {
         skipReason: "spawn-failed",
       });
     }
+    expect(d.files.has(P.snapshot)).toBe(false);
+    expect(s.diffSnapshot).toBeNull();
+    expect(readReviewBgState(d.files.get(P.state)!)?.diffSnapshot).toBeNull();
+    expect(d.removedDirs).toEqual([P.scratch]);
+  });
+
+  it("keeps a non-empty supervise log when the spawn fails", () => {
+    const d = makeDeps(
+      { [P.superviseLog]: "boom" },
+      { run: () => ({ exitCode: 1, stdout: "" }) },
+    );
+    d.deps.io.removeDir = () => {
+      throw Object.assign(new Error("not empty"), { code: "ENOTEMPTY" });
+    };
+    start(d);
+    expect(d.files.get(P.superviseLog)).toBe("boom");
+    expect(d.removed).not.toContain(P.superviseLog);
   });
 });
 
@@ -145,6 +164,7 @@ describe("startHelpers skips", () => {
       skipClass: "environment",
     });
     expect(d.files.has(P.state)).toBe(true);
+    expect(d.mkdirs).not.toContain(P.scratch);
   });
 
   it("skips both with agy-cooldown while the cooldown is live", () => {
@@ -156,6 +176,7 @@ describe("startHelpers skips", () => {
     expect(d.runs).toHaveLength(0);
     expect(s.helpers["gemini-lens"].skipReason).toBe("agy-cooldown");
     expect(s.helpers["gemini-intent-guess"].skipReason).toBe("agy-cooldown");
+    expect(d.mkdirs).not.toContain(P.scratch);
   });
 
   it("skips only the intent guess on a delta pass with intent-resolution.json", () => {
@@ -372,6 +393,24 @@ describe("resolveGeminiSkip", () => {
     );
     expect(resolveGeminiSkip("gemini-lens", s, null, "abc").skip_reason).toBe(
       "gemini-lens-disabled",
+    );
+  });
+
+  it("names helper-exited-without-envelope for a finished helper with no usable envelope", () => {
+    const s = base();
+    s.helpers["gemini-lens"] = {
+      ...s.helpers["gemini-lens"],
+      status: "done",
+      outcome: "complete",
+    };
+    const expected = {
+      ran: false,
+      skip_reason: "helper-exited-without-envelope",
+      skip_class: "ran-unusable",
+    };
+    expect(resolveGeminiSkip("gemini-lens", s, null, "abc")).toEqual(expected);
+    expect(resolveGeminiSkip("gemini-lens", s, '{"ran":false}', "abc")).toEqual(
+      expected,
     );
   });
 });

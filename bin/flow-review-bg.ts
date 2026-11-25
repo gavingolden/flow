@@ -17,6 +17,7 @@
 import { startHelpers } from "./lib/review-bg";
 import {
   BG_HELPERS,
+  MISSING_ENVELOPE_REASON,
   bgPaths,
   helperPaths,
   readReviewBgState,
@@ -154,17 +155,27 @@ function snapshot(
     if (hs.status === "running") resolved = false;
     const envelope = helperPaths(worktree, h).envelope;
     const env = parseEnvelope(io.readFile(envelope));
+    const ran =
+      typeof env?.ran === "boolean"
+        ? env.ran
+        : hs.status === "running"
+          ? null
+          : false;
+    const missingReason =
+      ran === false &&
+      hs.status !== "running" &&
+      hs.skipReason === undefined &&
+      typeof env?.skipReason !== "string";
     helpers[h] = {
       ...(env ?? {}),
       outcome: hs.outcome ?? "pending",
-      ran:
-        typeof env?.ran === "boolean"
-          ? env.ran
-          : hs.status === "running"
-            ? null
-            : false,
+      ran,
       ...(hs.skipReason !== undefined && { skipReason: hs.skipReason }),
       ...(hs.skipClass !== undefined && { skipClass: hs.skipClass }),
+      ...(missingReason && {
+        skipReason: MISSING_ENVELOPE_REASON,
+        skipClass: "ran-unusable" as const,
+      }),
       envelope,
     };
   }
@@ -193,12 +204,27 @@ const USAGE = [
   "       flow-review-bg supervise --worktree <dir> --generation <id>",
 ].join("\n");
 
+const ALLOWED_FLAGS: Record<
+  "start" | "wait" | "supervise",
+  ReadonlySet<string>
+> = {
+  start: new Set(["worktree", "config"]),
+  wait: new Set(["worktree", "max-sec"]),
+  supervise: new Set(["worktree", "generation"]),
+};
+
 function flags(argv: string[]): Record<string, string> | null {
   const out: Record<string, string> = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i];
     const v = argv[i + 1];
-    if (!k?.startsWith("--") || v === undefined || v.startsWith("--")) {
+    if (
+      !k?.startsWith("--") ||
+      v === undefined ||
+      v.startsWith("--") ||
+      v.trim() === "" ||
+      Object.hasOwn(out, k.slice(2))
+    ) {
       return null;
     }
     out[k.slice(2)] = v;
@@ -211,12 +237,19 @@ export async function run(
   writeOut: (line: string) => void = (l) => console.log(l),
 ): Promise<number> {
   const [verb, ...rest] = argv;
-  const f = flags(rest);
   const usage = (msg: string): number => {
     console.error(`flow-review-bg: ${msg}\n${USAGE}`);
     return 2;
   };
+  if (verb === undefined || !Object.hasOwn(ALLOWED_FLAGS, verb)) {
+    return usage(`unknown verb "${verb ?? ""}"`);
+  }
+  const f = flags(rest);
   if (f === null) return usage("malformed flags");
+  const allowed = ALLOWED_FLAGS[verb as keyof typeof ALLOWED_FLAGS];
+  for (const k of Object.keys(f)) {
+    if (!allowed.has(k)) return usage(`unknown flag --${k}`);
+  }
   const worktree = f.worktree;
   if (worktree === undefined) return usage("--worktree is required");
 
@@ -241,7 +274,7 @@ export async function run(
     }
     return 0;
   }
-  return usage(`unknown verb "${verb ?? ""}"`);
+  return usage(`unknown verb "${verb}"`);
 }
 
 if (import.meta.main) {

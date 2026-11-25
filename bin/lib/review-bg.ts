@@ -13,9 +13,11 @@ import { isGeminiLensEnabled } from "../flow-gemini-lens";
 import { readCooldown as realReadCooldown } from "./agy-cooldown";
 import { godurToSec, resolveDelegateTimeout } from "./delegate-timeouts";
 import type { SkipClass } from "./delegate-skip-class";
+import { rmdirIfEmpty } from "./helper-scratch";
 import { pidStartEpoch as realPidStartEpoch } from "./liveness";
 import {
   bgPaths,
+  bgRunOutputs,
   giveUpSec,
   readReviewBgState,
   readScope,
@@ -140,10 +142,7 @@ function newState(
 }
 
 function clearStale(worktree: string, io: StateIO): void {
-  const p = bgPaths(worktree);
-  for (const f of [p.lensEnvelope, p.intentEnvelope, p.lensOut, p.intentOut]) {
-    io.removeFile(f);
-  }
+  for (const f of bgRunOutputs(worktree)) io.removeFile(f);
 }
 
 function supersede(old: ReviewBgState, deps: StartDeps): void {
@@ -189,7 +188,7 @@ export function startHelpers(
   }
 
   clearStale(worktree, io);
-  io.mkdirp(p.scratch);
+  io.mkdirp(p.tmp);
   const startedAtSec = Math.floor(deps.nowMs() / 1000);
   const state = newState(
     worktree,
@@ -227,8 +226,10 @@ export function startHelpers(
   }
 
   try {
+    io.mkdirp(p.scratch);
     io.copyFile(p.diff, p.snapshot);
   } catch {
+    rmdirIfEmpty(p.scratch, io.removeDir);
     return skipBoth("gemini-diff-unreadable");
   }
   state.diffSnapshot = p.snapshot;
@@ -274,6 +275,9 @@ export function startHelpers(
     };
     failed(lens);
     failed(guess);
+    io.removeFile(p.snapshot);
+    state.diffSnapshot = null;
+    rmdirIfEmpty(p.scratch, io.removeDir);
     writeReviewBgState(worktree, state, io);
     return state;
   }

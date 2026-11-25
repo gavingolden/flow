@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseArgs, run } from "./flow-review-prep";
 import { validatePrReviewResult } from "./lib/pr-review-result-schema";
+import { bgPaths, bgRunOutputs } from "./lib/review-bg-state";
 import {
   runReviewPrep,
   setupIncompleteResult,
@@ -63,6 +64,7 @@ function makeExec(
     prState?: string;
     bgExit?: number;
     bgMissing?: boolean;
+    bgThrow?: string;
     bgCalls?: string[][];
   } = {},
 ) {
@@ -70,6 +72,11 @@ function makeExec(
     const [cmd] = argv;
     if (cmd === "flow-review-bg") {
       opts.bgCalls?.push(argv);
+      if (opts.bgThrow) {
+        throw Object.assign(new Error(`spawn failed: ${opts.bgThrow}`), {
+          code: opts.bgThrow,
+        });
+      }
       if (opts.bgMissing) {
         throw Object.assign(new Error("Executable not found in $PATH"), {
           code: "ENOENT",
@@ -427,9 +434,17 @@ describe("fail-closed review setup (#839)", () => {
 
   describe("background Gemini helpers", () => {
     const gemini = JSON.stringify({ review: { gemini: true } });
+    const runFiles = () => [...bgRunOutputs(worktree), bgPaths(worktree).state];
+    const seedRun = () => {
+      fs.mkdirSync(bgPaths(worktree).tmp, { recursive: true });
+      for (const f of runFiles()) fs.writeFileSync(f, "{}");
+    };
+    const expectRunGone = () => {
+      for (const f of runFiles()) expect(fs.existsSync(f), f).toBe(false);
+    };
 
     it("starts flow-review-bg once for an OPEN PR with no critical skip and keeps an adopted lens result", async () => {
-      seed("agent-output-gemini.json", "{}");
+      seedRun();
       const bgCalls: string[][] = [];
       const prep = await runReviewPrep({
         pr: 1,
@@ -441,12 +456,13 @@ describe("fail-closed review setup (#839)", () => {
       ]);
       expect(prep.completeness).toBe("full");
       expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(true);
+      expect(fs.existsSync(bgPaths(worktree).state)).toBe(true);
     });
 
     it.each(["CLOSED", "MERGED"])(
-      "does not start it for a %s PR and clears the lens result",
+      "does not start it for a %s PR and clears the whole prior run",
       async (prState) => {
-        seed("agent-output-gemini.json", "{}");
+        seedRun();
         const bgCalls: string[][] = [];
         await runReviewPrep({
           pr: 1,
@@ -454,12 +470,12 @@ describe("fail-closed review setup (#839)", () => {
           exec: makeExec({ prState, bgCalls }),
         });
         expect(bgCalls).toEqual([]);
-        expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+        expectRunGone();
       },
     );
 
-    it("does not start it after a critical skip and clears the lens result", async () => {
-      seed("agent-output-gemini.json", "{}");
+    it("does not start it after a critical skip and clears the whole prior run", async () => {
+      seedRun();
       const bgCalls: string[][] = [];
       const prep = await runReviewPrep({
         pr: 1,
@@ -468,7 +484,7 @@ describe("fail-closed review setup (#839)", () => {
       });
       expect(prep.critical_skips).toContain("fetch");
       expect(bgCalls).toEqual([]);
-      expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+      expectRunGone();
     });
 
     it("a missing helper is a NOTICE, not a skip, and records gemini-helper-missing when gemini is on", async () => {
@@ -494,20 +510,19 @@ describe("fail-closed review setup (#839)", () => {
       expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
     });
 
-    it("a missing helper with gemini off writes no state, only clears the lens result", async () => {
-      seed("agent-output-gemini.json", "{}");
+    it("a missing helper with gemini off writes no state and clears the whole prior run", async () => {
+      seedRun();
       await runReviewPrep({
         pr: 1,
         worktree,
         exec: makeExec({ bgMissing: true }),
         readConfig: () => "{}",
       });
-      expect(fs.existsSync(tmpPath("review-bg.json"))).toBe(false);
-      expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+      expectRunGone();
     });
 
-    it("a non-zero start is a named non-critical skip", async () => {
-      seed("agent-output-gemini.json", "{}");
+    it("a non-zero start is a named non-critical skip and clears the whole prior run", async () => {
+      seedRun();
       const prep = await runReviewPrep({
         pr: 1,
         worktree,
@@ -522,7 +537,24 @@ describe("fail-closed review setup (#839)", () => {
           critical: false,
         },
       ]);
-      expect(fs.existsSync(tmpPath("agent-output-gemini.json"))).toBe(false);
+      expectRunGone();
+    });
+
+    it("a non-ENOENT spawn error is a named non-critical skip and clears the whole prior run", async () => {
+      seedRun();
+      const prep = await runReviewPrep({
+        pr: 1,
+        worktree,
+        exec: makeExec({ bgThrow: "EACCES" }),
+      });
+      expect(prep.skips).toEqual([
+        {
+          step: "background_helpers",
+          reason: "spawn failed: EACCES",
+          critical: false,
+        },
+      ]);
+      expectRunGone();
     });
   });
 

@@ -174,7 +174,9 @@ export async function runSupervise(
 
   const killAll = (sig: NodeJS.Signals): void => {
     for (const t of tracked.values()) {
-      if (t.child.pid !== undefined) deps.killGroup(t.child.pid, sig);
+      if (!t.exited && t.child.pid !== undefined) {
+        deps.killGroup(t.child.pid, sig);
+      }
     }
   };
 

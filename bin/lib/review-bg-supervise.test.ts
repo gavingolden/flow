@@ -261,6 +261,17 @@ describe("runSupervise signals and ownership", () => {
     }
   });
 
+  it("SIGTERM signals only the helper that has not exited", async () => {
+    const t = setup(stateFor("g"));
+    const run = runSupervise({ worktree: WT, generation: "g" }, t.deps);
+    const [lens, guess] = t.children;
+    guess!.exit();
+    t.signals.get("SIGTERM")!();
+    await run;
+    expect(t.kills).toContainEqual([lens!.pid, "SIGTERM"]);
+    expect(t.kills.filter(([pid]) => pid === guess!.pid)).toEqual([]);
+  });
+
   it("a superseded generation never overwrites the newer state", async () => {
     const t = setup(stateFor("g", { guess: "skipped" }), {
       [P.snapshot]: "diff",

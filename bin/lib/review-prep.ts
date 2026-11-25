@@ -17,8 +17,10 @@
  * Step 2 — a non-critical hiccup never does. Prior-round inputs (consolidator
  * output, the old result, a failed scope pass's
  * `review-scope.json` / `diff.txt`) are cleared so none can be read as
- * this round's. The Gemini lens output is the exception: `flow-review-bg
- * start` owns that delete, so a same-head re-run can adopt the live run.
+ * this round's. The Gemini run's files are the exception: `flow-review-bg
+ * start` clears them on its own path, and setup clears the whole run
+ * whenever it does not start the helpers, so a same-head re-run can adopt
+ * the live run.
  */
 
 import * as fs from "node:fs";
@@ -30,6 +32,7 @@ import {
   type PrReviewResult,
 } from "./pr-review-result-schema";
 import { writeSkippedState } from "./review-bg";
+import { bgPaths, bgRunOutputs } from "./review-bg-state";
 
 export type ExecResult = { stdout: string; stderr: string; exitCode: number };
 export type ExecFn = (argv: string[], opts?: { cwd?: string }) => ExecResult;
@@ -236,10 +239,11 @@ export async function runReviewPrep(
   // survive into this round. pr-review-result.json is deliberately NOT
   // cleared here: flow-review-scope reads its prior `clean` status to
   // allow a delta scope, so it is removed right after the scope step.
-  // agent-output-gemini.json is deliberately NOT cleared here: a same-head
-  // re-run adopts the live background run, and clearing it would delete a
-  // finished lens result. `flow-review-bg start` (every non-adopt path) and
-  // the background_helpers sub-step below own that delete.
+  // The Gemini run's files are deliberately NOT cleared here: a same-head
+  // re-run adopts the live background run, and clearing them would delete a
+  // finished result. `flow-review-bg start` clears them on its own path, and
+  // the background_helpers sub-step below clears the whole run whenever it
+  // does not start the helpers.
   deleteFile(path.join(dir, "consolidator-result.json"));
   deleteFile(path.join(dir, "bundle-check.json"));
   deleteFile(path.join(dir, "bundle-check.prior.json"));
@@ -364,14 +368,20 @@ export async function runReviewPrep(
 
   const criticalSkips = skips.filter((s) => s.critical).map((s) => s.step);
 
-  const geminiOut = path.join(dir, "agent-output-gemini.json");
+  const clearBgRun = () => {
+    for (const f of [
+      ...bgRunOutputs(opts.worktree),
+      bgPaths(opts.worktree).state,
+    ])
+      deleteFile(f);
+  };
   if (state.toUpperCase() !== "OPEN" || criticalSkips.length > 0) {
-    deleteFile(geminiOut);
+    clearBgRun();
   } else {
     try {
       const r = exec(["flow-review-bg", "start", "--worktree", opts.worktree]);
       if (r.exitCode !== 0) {
-        deleteFile(geminiOut);
+        clearBgRun();
         skips.push({
           step: "background_helpers",
           reason: r.stderr || "flow-review-bg start failed",
@@ -384,7 +394,7 @@ export async function runReviewPrep(
         e.code !== "ENOENT" &&
         !/not found in \$PATH/i.test(errMessage(err))
       ) {
-        deleteFile(geminiOut);
+        clearBgRun();
         skips.push({
           step: "background_helpers",
           reason: errMessage(err),
@@ -403,7 +413,7 @@ export async function runReviewPrep(
         if (isGeminiLensEnabled(raw)) {
           writeSkippedState(opts.worktree, "gemini-helper-missing");
         } else {
-          deleteFile(geminiOut);
+          clearBgRun();
         }
       }
     }

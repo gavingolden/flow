@@ -19,7 +19,8 @@ is one of the six mandatory Claude lenses, so a missing result never escalates
 proceeds with the Claude lenses unchanged.
 
 Stale results are cleared by exact name only — `flow-review-scope` and
-`flow-review-prep` for the reviewers, `flow-review-bg start` for these two.
+`flow-review-prep` for the reviewers, `flow-review-bg start` for these two
+(and `flow-review-prep`, for the whole run, whenever it does not start them).
 Never glob-delete in `.flow-tmp/` while a review runs: the background helpers
 keep live working files under `.flow-tmp/scratch/`.
 
@@ -34,9 +35,12 @@ flow-review-bg wait --worktree "$WORKTREE"
 ```
 
 It prints one JSON line `{done, elapsedSec, helpers: {"gemini-lens": …,
-"gemini-intent-guess": …}}`, never launches anything, and exits 0 on every
-outcome. Each helper entry carries `outcome`, `ran`, the helper's own envelope
-fields, and `skipReason` / `skipClass` when it did not run.
+"gemini-intent-guess": …}}`, never launches anything, and a well-formed call
+exits 0 on every outcome. A malformed call (an unknown flag or an empty value)
+exits 2 with the usage text: correct the call to the form shown and re-run it;
+if it still fails, record both helpers as `gemini-not-awaited` and proceed,
+never stopping the review. Each helper entry carries `outcome`, `ran`, the
+helper's own envelope fields, and `skipReason` / `skipClass` when it did not run.
 
 Skipping the wait means Gemini's findings are not guaranteed to reach Step 3.5,
 and Step 12's lens table shows `gemini-not-awaited` whether or not the lens
