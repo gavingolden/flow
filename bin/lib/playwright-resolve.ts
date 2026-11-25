@@ -1,11 +1,11 @@
 /**
  * Resolves the TARGET repo's own Playwright for the deterministic UI capture.
- * flow ships no Playwright (no browser download per flow install); the capture
- * uses whatever the worktree's `node_modules` provides, and a missing package
- * or undownloaded browser is a named, loud status — never a silent skip.
+ * flow ships no Playwright; worktree creation installs the pinned Chromium
+ * build once (bin/lib/playwright-browsers.ts). The capture uses whatever the
+ * worktree's `node_modules` provides, and a missing package or undownloaded
+ * browser is a named, loud status — never a silent skip.
  *
- * The install hints are text for the flow user only. No code or doc may tell
- * the agent to run them: "never install browser binaries".
+ * No agent runs these install hints — they are text for the flow user.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -21,7 +21,7 @@ export type PlaywrightStatus = {
 export const PLAYWRIGHT_MISSING_HINT =
   "UI review screenshots need Playwright in this repo — run `npm i -D @playwright/test && npx playwright install chromium`";
 export const PLAYWRIGHT_BROWSERS_HINT =
-  "UI review screenshots need Playwright's browser in this repo — run `npx playwright install chromium`";
+  "UI review screenshots need the browser build this repo's Playwright pins, and flow did not install it when the worktree was created (it was turned off, the download failed or timed out, or the worktree predates this check — see the worktree step's output) — run `npx playwright install chromium`";
 
 export type PlaywrightDeps = {
   /** Absolute path of the Playwright module as the worktree sees it, or null. */

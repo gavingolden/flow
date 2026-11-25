@@ -3,6 +3,7 @@ import {
   GRANT_DENY_RULES,
   FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
+  PLAYWRIGHT_INSTALL_DENY_RULES,
   SECRET_FILE_DENY_RULES,
 } from "./secret-deny-rules";
 
@@ -225,5 +226,39 @@ describe("GRANT_DENY_RULES", () => {
       ),
     ).toBe(false);
     expect(new Set(GRANT_DENY_RULES).size).toBe(GRANT_DENY_RULES.length);
+  });
+});
+
+describe("PLAYWRIGHT_INSTALL_DENY_RULES", () => {
+  const denies = (cmd: string) =>
+    subcommands(cmd).some((sub) =>
+      PLAYWRIGHT_INSTALL_DENY_RULES.some((r) => ruleMatches(r, sub)),
+    );
+
+  it.each([
+    "npx playwright install chromium",
+    "npx playwright install",
+    "cd x && npx playwright install",
+    "bunx playwright install",
+    "npm exec playwright install chromium",
+    "pnpm exec playwright install chromium",
+    "yarn playwright install chromium",
+    "npx -y playwright install chromium",
+    "npx --yes playwright install",
+    "npx @playwright/test install",
+    "pnpm playwright install chromium",
+    "pnpm dlx playwright install",
+    "bun x playwright install chromium",
+    "./node_modules/.bin/playwright install chromium",
+  ])("denies %s", (cmd) => {
+    expect(denies(cmd), cmd).toBe(true);
+  });
+
+  it.each([
+    "npx playwright test",
+    'grep -rn "npx playwright install" skills',
+    "npm run test",
+  ])("allows %s", (cmd) => {
+    expect(denies(cmd), cmd).toBe(false);
   });
 });

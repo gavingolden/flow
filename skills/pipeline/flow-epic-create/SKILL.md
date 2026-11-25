@@ -127,6 +127,11 @@ absolute path as `$WORKTREE`:
 WORKTREE=$(flow-new-worktree | sed -n 's/^.*[Cc]reating worktree at: //p; s/^.*[Rr]eusing existing worktree at: //p' | tail -1)
 ```
 
+Run the capture with Bash `timeout: 600000` (`npm install` plus a possible
+pinned-browser download). A `Playwright browser:` line arrives on stderr; when
+it reports not installed or turned off, relay it in the next pause's
+**Needs attention:**.
+
 Then `mkdir -p "$WORKTREE/.flow-tmp"` for scratch.
 
 ## Step 2 — Materiality-gated clarification (the `/flow-epic-create` clarification form)

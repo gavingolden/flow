@@ -42,6 +42,7 @@ describe("TELEMETRY_EVENTS", () => {
       "plan-review.fallback",
       "manager.wake",
       "manager.heartbeat",
+      "playwright.install",
     ]);
   });
 

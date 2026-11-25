@@ -78,6 +78,32 @@ const commandDenyRules = (cmd: string): string[] => [
 ];
 
 /**
+ * Keeps a flow-launched session from installing a Playwright browser itself:
+ * flow's own pinned-build install (bin/lib/playwright-browsers.ts) is the only
+ * download. Prefix rules only — no leading wildcard — so reading or searching
+ * for the command text (`grep "npx playwright install" skills`) stays allowed.
+ */
+export const PLAYWRIGHT_INSTALL_DENY_RULES: readonly string[] = [
+  "npx playwright install",
+  "npm exec playwright install",
+  "bunx playwright install",
+  "pnpm exec playwright install",
+  "yarn playwright install",
+  "npx -y playwright install",
+  "npx --yes playwright install",
+  "npx @playwright/test install",
+  "npx -y @playwright/test install",
+  "npx --yes @playwright/test install",
+  "pnpm playwright install",
+  "pnpm dlx playwright install",
+  "pnpm dlx @playwright/test install",
+  "bun x playwright install",
+  "bun x @playwright/test install",
+  "./node_modules/.bin/playwright install",
+  "node_modules/.bin/playwright install",
+].map((cmd) => `Bash(${cmd} *)`);
+
+/**
  * Keeps a flow-launched session from granting the executive autonomy or
  * forging a manager ruling: denies the high-autonomy and `--relay` grant
  * commands (`flow grant` and its `flow epic grant` alias; space and `=` forms,
