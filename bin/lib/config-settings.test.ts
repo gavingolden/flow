@@ -312,6 +312,11 @@ describe("buildSettingsRows", () => {
       [{ product: { judge: true } }, "product.judge", "config (product.judge)"],
       [{ ui: { critique: true } }, "ui.critique", "config (ui.critique)"],
       [
+        { playwright: { installBrowsers: true } },
+        "playwright.installBrowsers",
+        "config (playwright.installBrowsers)",
+      ],
+      [
         { review: { lensGates: true } },
         "review.lensGates",
         "config (review.lensGates)",

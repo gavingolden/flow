@@ -155,7 +155,10 @@ import {
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
 } from "./pipeline-allow-rules";
-import { GRANT_DENY_RULES } from "./secret-deny-rules";
+import {
+  GRANT_DENY_RULES,
+  PLAYWRIGHT_INSTALL_DENY_RULES,
+} from "./secret-deny-rules";
 import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
@@ -4691,6 +4694,9 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     const { deny, allow } = readPermissions();
     expect(GRANT_DENY_RULES.length).toBeGreaterThan(0);
     for (const rule of GRANT_DENY_RULES) expect(deny).toContain(rule);
+    expect(PLAYWRIGHT_INSTALL_DENY_RULES.length).toBeGreaterThan(0);
+    for (const rule of PLAYWRIGHT_INSTALL_DENY_RULES)
+      expect(deny).toContain(rule);
     for (const rule of FLOW_EXEC_REVIEW_ALLOW_RULES)
       expect(allow).toContain(rule);
     expect(allow.filter((r) => r.startsWith("Bash(flow-exec-review"))).toEqual([

@@ -900,6 +900,9 @@ describe("flow-new-worktree (integration)", () => {
   it("creates a worktree on the literal slug when nothing collides", async () => {
     const r = await spawnHelper(["foo"], fx.repoDir);
     expect(r.exitCode, `stderr: ${r.stderr}`).toBe(0);
+    // The fixture's package.json is `{}` (no Playwright): the ensure step is silent.
+    expect(r.stdout).not.toContain("Playwright browser:");
+    expect(r.stderr).not.toContain("Playwright browser:");
 
     const expectedDir = path.join(worktreeContainerDir(fx.repoDir), "repo-foo");
     expect(fs.existsSync(expectedDir)).toBe(true);

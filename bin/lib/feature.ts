@@ -80,6 +80,7 @@ import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import {
   GRANT_DENY_RULES,
+  PLAYWRIGHT_INSTALL_DENY_RULES,
   FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
@@ -2099,7 +2100,11 @@ export function launchSettingsPermissions(): {
   allow: string[];
 } {
   return {
-    deny: [...SECRET_FILE_DENY_RULES, ...GRANT_DENY_RULES],
+    deny: [
+      ...SECRET_FILE_DENY_RULES,
+      ...GRANT_DENY_RULES,
+      ...PLAYWRIGHT_INSTALL_DENY_RULES,
+    ],
     allow: [
       ...FLOW_UI_LOGIN_ALLOW_RULES,
       ...FLOW_CREATE_ISSUE_ALLOW_RULES,

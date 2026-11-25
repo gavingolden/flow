@@ -24,6 +24,10 @@ import { spawnSync } from "node:child_process";
 import { git } from "./lib/git";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { readState } from "./lib/state";
+import {
+  ensurePinnedBrowser,
+  formatEnsureLine,
+} from "./lib/playwright-browsers";
 import { findAvailableSlot, worktreeDirFor } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
 import {
@@ -299,7 +303,11 @@ function healFlowWorktrees(repoDir: string): {
   return { repaired: repaired.length, failed: failed.length };
 }
 
-function main(): void {
+// The supervisor runs this under a 600 s Bash timeout; leave room to finish.
+const PROCESS_BUDGET_MS = 540_000;
+
+async function main(): Promise<void> {
+  const processStart = Date.now();
   const parsed = parseArgs();
   if (parsed.kind === "help") {
     printHelp();
@@ -383,6 +391,21 @@ function main(): void {
     );
   }
 
+  // Best-effort: a missing pinned browser must not abort worktree creation.
+  // The line goes to stderr so `$(flow-new-worktree | sed …)` captures never
+  // swallow it and the stdout path lines stay unchanged.
+  try {
+    const ensured = await ensurePinnedBrowser(chosen.worktreeDir, {
+      deadlineMs: processStart + PROCESS_BUDGET_MS,
+    });
+    const line = formatEnsureLine(ensured);
+    if (line) console.error(line);
+  } catch (e: unknown) {
+    log.warn(
+      `could not ensure the Playwright browser: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
   console.log(`
 ${config.reuse ? "✅ Worktree reused!" : "✅ Worktree ready!"}
    Directory: ${chosen.worktreeDir}
@@ -396,11 +419,9 @@ When done, clean up with:
 }
 
 if (import.meta.main) {
-  try {
-    main();
-  } catch (e: unknown) {
+  main().catch((e: unknown) => {
     const msg = e instanceof Error ? e.message : String(e);
     log.error(msg);
     process.exit(1);
-  }
+  });
 }

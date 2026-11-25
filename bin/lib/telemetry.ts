@@ -42,6 +42,7 @@ export const TELEMETRY_EVENTS = [
   "plan-review.fallback",
   "manager.wake",
   "manager.heartbeat",
+  "playwright.install",
 ] as const;
 
 export type TelemetryEventName = (typeof TELEMETRY_EVENTS)[number];

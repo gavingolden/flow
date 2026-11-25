@@ -41,6 +41,11 @@
  * manifest, localhost-only targets); values reach only the child's env and
  * are never printed, persisted or photographed.
  *
+ * Also accepted: `flow-playwright-ensure` runs repo code (the repo's own
+ * Playwright CLI) and downloads the pinned Chromium build from Playwright's
+ * CDN without classifier review. It runs only that CLI's `install chromium`,
+ * bounded by a 300 s cap, and prints at most one status line.
+ *
  * Also accepted: `flow-safeguards` rewrites files (`compact --in-place`,
  * `map-paths`) and appends or writes logs without classifier review. It
  * refuses (exit 2) any write target outside the current working directory
@@ -55,6 +60,7 @@
 export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-state-update",
   "flow-new-worktree",
+  "flow-playwright-ensure",
   "flow-remove-worktree",
   "flow-ci-check",
   "flow-ci-wait",

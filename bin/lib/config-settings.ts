@@ -380,6 +380,12 @@ const DESCRIPTORS: Descriptor[] = [
     resolve: (read) => strictFalseOptOut(read, "ui.critique"),
   },
   {
+    key: "playwright.installBrowsers",
+    meaning:
+      "whether worktree creation downloads the Chromium build a repo's Playwright version pins when it is missing",
+    resolve: (read) => strictFalseOptOut(read, "playwright.installBrowsers"),
+  },
+  {
     key: "power.keepAwake",
     meaning:
       "whether the Mac is kept from idle-sleeping, on mains power or battery, while a pipeline is working (closing the lid still sleeps it)",

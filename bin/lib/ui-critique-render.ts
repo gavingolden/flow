@@ -48,7 +48,7 @@ const PLAIN_REASONS: Record<string, string> = {
   "playwright-unavailable":
     "the browser tool was unavailable and this repo has no Playwright — run `npm i -D @playwright/test && npx playwright install chromium`",
   "playwright-browsers-missing":
-    "the browser tool was unavailable and Playwright's browser is not downloaded — run `npx playwright install chromium`",
+    "the browser tool was unavailable and the browser build this repo's Playwright pins was not installed when the worktree was created — run `npx playwright install chromium`",
   "capture-failed": "the screenshot capture failed",
   "login-failed": "the capture could not log in with the test account",
   "credentials-unavailable": "the test-account credentials were not available",

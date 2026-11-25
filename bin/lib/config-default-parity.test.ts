@@ -28,6 +28,7 @@ import { readTolerantBool } from "../flow-review-scope";
 import { readConfigDiscovery } from "../flow-research-note";
 import { readJudgeEnabled } from "./explain-judge";
 import { readUiCritiqueEnabled } from "./ui-critique-config";
+import { readPlaywrightInstallEnabled } from "./playwright-browsers";
 import { isGeminiLensEnabled } from "../flow-gemini-lens";
 import { isClaudeFallbackEnabled } from "./plan-review-fallback";
 
@@ -87,6 +88,14 @@ describe("config-default-parity: the view's defaults match their real consumer's
     expect(
       viewDefault("ui.critique"),
       "readUiCritiqueEnabled(absent config) default",
+    ).toBe(String(consumerDefault));
+  });
+
+  it("playwright.installBrowsers: view default matches readPlaywrightInstallEnabled's default", () => {
+    const consumerDefault = readPlaywrightInstallEnabled(() => undefined); // absent config file
+    expect(
+      viewDefault("playwright.installBrowsers"),
+      "readPlaywrightInstallEnabled(absent config) default",
     ).toBe(String(consumerDefault));
   });
 

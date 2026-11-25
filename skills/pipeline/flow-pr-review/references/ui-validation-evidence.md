@@ -352,8 +352,7 @@ no-capture rule applies unchanged: the script takes no screenshot, trace, video
 or HAR while on `loginUrl` (launch the context with tracing, video and HAR off,
 starting them only after the post-login redirect), and its evidence output
 never includes the values. The values live only in the run's memory — never
-logged, printed, or written to the script file or results. Never install browser binaries (a download outside the
-worktree is neither local nor cheaply reversible).
+logged, printed, or written to the script file or results. Never install browser binaries (flow's only browser install is the pinned Chromium build, run by flow-new-worktree and flow-playwright-ensure).
 Write the results to `.flow-tmp/ui-driver-result.json` in the driver's schema
 (validate with `flow-ui-driver-schema --validate`), stamped `caller: "review-8c"`
 and `headSha` from `git rev-parse HEAD` at write time, with `item_results[]`

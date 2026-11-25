@@ -118,6 +118,7 @@ export const MODULES: ModuleDefinition[] = [
     ],
     helpers: [
       "flow-new-worktree",
+      "flow-playwright-ensure",
       "flow-remove-worktree",
       "flow-state-update",
       "flow-rename-window",

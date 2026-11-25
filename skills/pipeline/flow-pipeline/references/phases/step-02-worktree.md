@@ -16,6 +16,11 @@ Then create the worktree:
 flow-new-worktree <slug>
 ```
 
+Run it with Bash `timeout: 600000` — it runs `npm install` and, in a
+Playwright repo, may download the pinned browser build. A
+`Playwright browser: not installed …` or `… download is turned off` line
+(printed on stderr) goes into the next pause's **Needs attention:**.
+
 The positional `<slug>` is belt-and-suspenders: `flow-new-worktree` reads
 `$FLOW_SLUG` ambiently, so a bare call resolves the same value; a
 positional that doesn't match `$FLOW_SLUG` is a hard error

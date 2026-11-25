@@ -63,6 +63,9 @@ a full check run), every pipeline push site follows four rules:
    - After step 6 fixes a refusal on the first push, `flow-pipeline` Step 5
      re-runs `flow-open-pr` (Bash `timeout: 600000`) before advancing to
      step 7, since the PR does not exist until that push succeeds.
+   - A refusal caused by a missing browser or tool binary is recorded the
+     same way, never by installing binaries (`npx playwright install`,
+     `npm i`); flow installs the pinned browser build itself.
    - A dropped connection (`the remote end hung up`, `RPC failed`,
      `unexpected disconnect`, `[remote failure]`) is not a hook refusal;
      `flow-open-pr` does not print the refusal line for it.
