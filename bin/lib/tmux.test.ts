@@ -1057,7 +1057,7 @@ describe(publishStateBadges, () => {
     { id: "@2", name: "renamed by user", slug: "csv-export", activity: 0 },
   ];
 
-  it("publishes the four window-scoped badges, including the byte-exact @flow-pr set", () => {
+  it("publishes the five window-scoped badges, including the byte-exact @flow-pr set", () => {
     const { calls, spawnTmux } = fakeSpawn();
     const result = publishStateBadges(
       {
@@ -1070,12 +1070,65 @@ describe(publishStateBadges, () => {
       { spawnTmux, listWindowsFn: () => windows, env: {} },
     );
     expect(result).toEqual({ ok: true, stderr: "" });
-    expect(calls.slice(0, 4)).toEqual([
+    expect(calls.slice(0, 5)).toEqual([
       ["set-option", "-w", "-t", "@2", "@flow-phase", "reviewing"],
       ["set-option", "-w", "-t", "@2", "@flow-phase-short", "review"],
       ["set-option", "-w", "-t", "@2", "@flow-pr", "762"],
       ["set-option", "-w", "-t", "@2", "@flow-epic", ""],
+      ["set-option", "-w", "-t", "@2", "@flow-attn", "run"],
     ]);
+  });
+
+  describe("@flow-attn", () => {
+    const open = [{ id: 1, title: "t", source: "x", at: "t" }];
+    const attnFor = (phase: string, extra: Record<string, unknown> = {}) => {
+      const { calls, spawnTmux } = fakeSpawn();
+      const r = publishStateBadges(
+        {
+          slug: "csv-export",
+          phase,
+          kind: "feature",
+          launcher: "tmux",
+          ...extra,
+        } as Parameters<typeof publishStateBadges>[0],
+        { spawnTmux, listWindowsFn: () => windows, env: {} },
+      );
+      return { r, value: calls.find((c) => c[4] === "@flow-attn")?.[5] };
+    };
+
+    it("tiers gated needs, ci-wait-pending run, clean merged close", () => {
+      expect(attnFor("gated").value).toBe("needs");
+      expect(attnFor("ci-wait-pending").value).toBe("run");
+      expect(attnFor("merged").value).toBe("close");
+    });
+
+    it("keeps a merged window with an open untracked item at needs", () => {
+      expect(attnFor("merged", { untracked: open }).value).toBe("needs");
+    });
+
+    it("publishes the empty string for an untiered manager window", () => {
+      expect(attnFor("implementing", { kind: "manager" }).value).toBe("");
+    });
+
+    it("a failing @flow-attn set does not change ok", () => {
+      const calls: string[][] = [];
+      const spawnTmux = (args: string[]): SpawnResult => {
+        calls.push(args);
+        return args[4] === "@flow-attn"
+          ? { stdout: "", stderr: "boom", exitCode: 1 }
+          : { stdout: "", stderr: "", exitCode: 0 };
+      };
+      const r = publishStateBadges(
+        {
+          slug: "csv-export",
+          phase: "gated",
+          kind: "feature",
+          launcher: "tmux",
+        },
+        { spawnTmux, listWindowsFn: () => windows, env: {} },
+      );
+      expect(r.ok).toBe(true);
+    });
   });
 
   describe("close-aware @flow-phase-short", () => {

@@ -94,6 +94,7 @@ import {
   respawnWindowVerified,
   setPaneKind,
   setWindowEpic,
+  publishStateBadges,
   windowExists,
   isPaneAlive,
   capturePaneBySlug,
@@ -802,6 +803,15 @@ PR → review checkpoint), and writes initial epic state under
   // binding #{@flow-epic}. Never changes this command's exit code.
   setWindowEpic(slug, slug);
 
+  // A fresh window is seeded `start` with @flow-attn unset; republish from the
+  // recorded state so it reads `run` from the start. Best-effort.
+  try {
+    const published = readState(slug, options.stateDir);
+    if (published != null) publishStateBadges(published);
+  } catch {
+    // best-effort
+  }
+
   // State was written up front and survived verification; the /flow-epic-create
   // supervisor overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
@@ -1044,6 +1054,15 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // reuses the pane and never re-seeds window options, so a resumed epic-design
   // window needs this republish too. Never changes this command's exit code.
   setWindowEpic(slug, slug);
+  // A fresh window is seeded `start`, and a respawned or reclaimed pane keeps
+  // its old options (a `flow epic run` seed, or none of @flow-attn), so
+  // republish every badge from the recorded state on both paths. Best-effort.
+  try {
+    const published = readState(slug, options.stateDir);
+    if (published != null) publishStateBadges(published);
+  } catch {
+    // best-effort
+  }
 
   // Phase + worktree + pr stay as the crash left them. The supervisor's first
   // real transition is what updates state.json.

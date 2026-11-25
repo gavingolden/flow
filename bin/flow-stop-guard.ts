@@ -61,6 +61,7 @@ import {
   type PauseSlots,
 } from "./lib/pause-capture";
 import {
+  attnTier,
   closeVerdict,
   VERDICT_PHASES,
   verdictWord,
@@ -224,10 +225,11 @@ export function verdictNotice(
 /**
  * At merged / cancelled / gated / needs-human turn ends: record the message's
  * un-numbered Untracked / Manual action (and, at finished phases, Unsolved)
- * bullets into the ledger, refresh the badge only when something was
- * recorded, and print the close verdict as one `systemMessage` unless the
+ * bullets into the ledger, refresh the badges on every such turn end
+ * (recorded items or not), and print the close verdict as one `systemMessage` unless the
  * message already carries the helper's matching `WINDOW:` row. Best-effort;
- * never changes the exit code. Epic windows are out of scope.
+ * never changes the exit code. Other tiered windows (pending feature phases,
+ * epic design) only get their badges refreshed.
  */
 function closeVerdictHook(
   deps: Deps,
@@ -236,8 +238,16 @@ function closeVerdictHook(
   message: string | undefined,
 ): void {
   try {
-    if (!VERDICT_PHASES.has(state.phase)) return;
-    if (resolveStateKind(state) !== "feature") return;
+    if (
+      !VERDICT_PHASES.has(state.phase) ||
+      resolveStateKind(state) !== "feature"
+    ) {
+      // Pending feature phases and epic-design windows carry a tier too: a
+      // reply republishes @flow-attn so a pre-upgrade window picks it up.
+      // Untiered kinds (epic-run, manager) are never published here.
+      if (attnTier(state) !== null) deps.publishBadges?.(state);
+      return;
+    }
     const fromMessage = (deps.parsePause ?? defaultParsePause)(message);
     let parsed: PauseSlots | null = fromMessage;
     if (parsed === null) {
@@ -282,14 +292,14 @@ function closeVerdictHook(
           if (!before.has(i.id)) recorded.push(i.id);
         }
         cur = next;
-        if (recorded.length > 0) {
-          try {
-            deps.publishBadges?.(cur);
-          } catch {
-            // publish-only
-          }
-        }
       }
+    }
+    // Every verdict-phase turn end republishes, so a window open before an
+    // upgrade gets its badges (incl. @flow-attn) on its next reply.
+    try {
+      deps.publishBadges?.(cur);
+    } catch {
+      // publish-only
     }
     const v = closeVerdict(cur);
     const notice = verdictNotice(

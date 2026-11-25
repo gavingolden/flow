@@ -67,6 +67,13 @@ const tmuxMock = vi.hoisted(() => ({
   setWindowEpic: vi.fn<
     (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
+  // Best-effort badge republish on a fresh-window epic-design resume.
+  publishStateBadges: vi.fn<
+    (state: { slug: string; phase: string }) => {
+      ok: boolean;
+      stderr: string;
+    }
+  >(() => ({ ok: true, stderr: "" })),
   capturePaneBySlug: vi.fn<(slug: string) => string>(() => ""),
   FLOW_SESSION: "flow",
   SEED_CORRUPTED_STDERR:
@@ -218,6 +225,9 @@ beforeEach(() => {
     .mockReset()
     .mockReturnValue({ status: "started", stderr: "" });
   tmuxMock.setPaneKind.mockReset().mockReturnValue({ ok: true, stderr: "" });
+  tmuxMock.publishStateBadges
+    .mockReset()
+    .mockReturnValue({ ok: true, stderr: "" });
   tmuxMock.capturePaneBySlug.mockReset().mockReturnValue("");
 });
 
@@ -1454,6 +1464,31 @@ describe("runEpicCli create --resume", () => {
       stateDir,
     });
     expect(code).toBe(0);
+  });
+
+  it("republishes badges from the recorded state on resume, for both a fresh window and a respawn", () => {
+    seedEpicState("badge-epic");
+    tmuxMock.windowExists.mockReturnValue(false);
+    expect(runEpicCli(["create", "--resume", "badge-epic"], { stateDir })).toBe(
+      0,
+    );
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges.mock.calls[0]?.[0]).toMatchObject({
+      slug: "badge-epic",
+    });
+
+    tmuxMock.publishStateBadges.mockClear();
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    expect(runEpicCli(["create", "--resume", "badge-epic"], { stateDir })).toBe(
+      0,
+    );
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalled();
+    expect(tmuxMock.publishStateBadges).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges.mock.calls[0]?.[0]).toMatchObject({
+      slug: "badge-epic",
+    });
   });
 
   it("recreates the window when tmux has lost it (no window, dead pane)", () => {

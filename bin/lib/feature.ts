@@ -38,6 +38,7 @@ import {
   SEED_CORRUPTED_STDERR,
   setWindowEpic,
   setPaneKind,
+  publishStateBadges,
   capturePaneBySlug,
   type VerifiedLaunchResult,
 } from "./tmux";
@@ -1375,6 +1376,15 @@ function runFresh(
     setWindowEpic(slug, options.epic.slug);
   }
 
+  // A fresh window is seeded `start` with @flow-attn unset; republish from the
+  // recorded state so a new window reads `run` from the start. Best-effort.
+  try {
+    const published = readState(slug, options.stateDir);
+    if (published != null) publishStateBadges(published);
+  } catch {
+    // best-effort
+  }
+
   // Launch breadcrumb: fold attempts/outcome into the CURRENT on-disk state
   // (re-read after withLaunchSlot returned — never baseState; the final
   // attempt count doesn't exist inside the per-attempt closure, and a
@@ -1740,6 +1750,17 @@ function runResume(
   // resumed epic window's @flow-epic gets (re)set.
   if (preResume?.epic) {
     setWindowEpic(slug, preResume.epic.slug);
+  }
+
+  // A fresh window is seeded `start`, and a respawned one keeps whatever
+  // options it had (a window opened before the @flow-attn upgrade has none),
+  // so republish every badge (incl. @flow-attn) from the recorded state on
+  // both paths. Best-effort, never changes the exit code.
+  try {
+    const published = readState(slug, options.stateDir);
+    if (published != null) publishStateBadges(published);
+  } catch {
+    // best-effort
   }
 
   // Launch breadcrumb, mirroring runFresh: fold attempts/outcome into the

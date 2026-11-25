@@ -172,3 +172,40 @@ export function badgeShort(
   if (closeVerdict({ ...state, slug: "" }).cause !== "open-items") return null;
   return state.phase === "merged" ? "merged?" : "cancel?";
 }
+
+export const ATTN_TIERS = ["needs", "close", "run"] as const;
+export type AttnTier = (typeof ATTN_TIERS)[number];
+
+const EPIC_DESIGN_CLOSE_PHASES: ReadonlySet<string> = new Set([
+  "epic-approved",
+  "cancelled",
+]);
+
+/**
+ * The attention tier published as `@flow-attn`: a pure projection of recorded
+ * state. Labels windows only — it never reorders them. `run` means "not known
+ * to need you": running, or crashed (`flow ls` shows `(crashed)`). `null` is
+ * untiered (epic-run, manager): the caller publishes an empty value.
+ */
+export function attnTier(
+  state: Pick<PipelineState, "phase" | "kind" | "phaseLog" | "untracked">,
+): AttnTier | null {
+  const kind = resolveStateKind(state);
+  if (kind === "feature") {
+    const v = closeVerdict({ ...state, slug: "" }).kind;
+    if (v === "needs-you") return "needs";
+    if (v === "safe-to-close") return "close";
+    return "run";
+  }
+  if (kind === "epic-design") {
+    if (EPIC_DESIGN_CLOSE_PHASES.has(state.phase)) return "close";
+    if (VERDICT_PHASES.has(state.phase)) return "needs";
+    if (
+      PENDING_PHASE_SET.has(state.phase) &&
+      !SELF_RUNNING_PENDING.has(state.phase)
+    )
+      return "needs";
+    return "run";
+  }
+  return null;
+}

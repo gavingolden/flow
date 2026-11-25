@@ -1495,6 +1495,9 @@ describe("close-verdict hook line", () => {
       "#1 serialize parallel suites (recorded just now)",
     );
     expect(h.published).toHaveLength(1);
+    expect(h.published[0]?.untracked?.map((i) => i.title)).toEqual([
+      "serialize parallel suites",
+    ]);
   });
 
   it("harvests bullets only, never count lines or sentinels", async () => {
@@ -1528,12 +1531,36 @@ describe("close-verdict hook line", () => {
     expect(gated.recordCalls).toEqual([]);
   });
 
-  it("publishes no badge when nothing was recorded", async () => {
-    const h = await runAt(fakeState("merged"), {
+  it("republishes at a verdict-phase turn end even when nothing was recorded", async () => {
+    const h = await runAt(fakeState("gated"), {
       message: block("**Untracked:** none"),
     });
     expect(h.recordCalls).toEqual([]);
-    expect(h.published).toEqual([]);
+    expect(h.published).toHaveLength(1);
+  });
+
+  it("republishes badges only, never records or speaks, at a pending feature phase or an epic-design window", async () => {
+    const working = await runAt(fakeState("plan-pending-review"), {
+      message: block("**Untracked:**\n- stray bullet"),
+    });
+    expect(working.published).toHaveLength(1);
+    expect(working.recordCalls).toEqual([]);
+    expect(working.msgs).toEqual([]);
+    const epic = await runAt(
+      fakeState("needs-human", { kind: "epic-design" }),
+      {
+        message: block("**Untracked:** none"),
+      },
+    );
+    expect(epic.published).toHaveLength(1);
+    expect(epic.recordCalls).toEqual([]);
+  });
+
+  it("never republishes an untiered epic-run window", async () => {
+    const run = await runAt(fakeState("needs-human", { kind: "epic-run" }), {
+      message: block("**Untracked:** none"),
+    });
+    expect(run.published).toEqual([]);
   });
 
   it("treats an unconsumed gate record as the block once, then hedges on a block-less reply", async () => {
