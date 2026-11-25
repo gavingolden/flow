@@ -474,6 +474,19 @@ describe("fail-closed review setup (#839)", () => {
       },
     );
 
+    it("stops the prior run through the stop seam instead of deleting it blind", async () => {
+      seedRun();
+      const stopped: string[] = [];
+      await runReviewPrep({
+        pr: 1,
+        worktree,
+        exec: makeExec({ prState: "CLOSED" }),
+        stopBgRun: (w) => void stopped.push(w),
+      });
+      expect(stopped).toEqual([worktree]);
+      expect(fs.existsSync(bgPaths(worktree).state)).toBe(true);
+    });
+
     it("does not start it after a critical skip and clears the whole prior run", async () => {
       seedRun();
       const bgCalls: string[][] = [];

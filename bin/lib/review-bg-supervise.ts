@@ -19,6 +19,7 @@ import {
   BG_HELPERS,
   helperPaths,
   isTrustedConfigPath,
+  MISSING_ENVELOPE_REASON,
   readReviewBgState,
   realStateIO,
   writeEnvelopeIfOwner,
@@ -249,11 +250,7 @@ export async function runSupervise(
           if (isCompleteEnvelope(io.readFile(h.envelope))) {
             commit(helper, "complete");
           } else {
-            commit(
-              helper,
-              "helper-exited-without-envelope",
-              "helper-exited-without-envelope",
-            );
+            commit(helper, MISSING_ENVELOPE_REASON, MISSING_ENVELOPE_REASON);
           }
         } else if (h.giveUpAtSec !== null && now >= h.giveUpAtSec) {
           await giveUp(helper);
@@ -285,11 +282,7 @@ export async function runSupervise(
     }
     for (const helper of running) {
       if (!resolved.has(helper)) {
-        commit(
-          helper,
-          "helper-exited-without-envelope",
-          "helper-exited-without-envelope",
-        );
+        commit(helper, MISSING_ENVELOPE_REASON, MISSING_ENVELOPE_REASON);
       }
     }
     trigger();

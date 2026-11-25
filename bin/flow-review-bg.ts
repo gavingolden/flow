@@ -123,11 +123,9 @@ function snapshot(
                   io.readFile(helperPaths(worktree, h).envelope),
                 );
                 hs.status = "done";
-                hs.outcome = complete
-                  ? "complete"
-                  : "helper-exited-without-envelope";
+                hs.outcome = complete ? "complete" : MISSING_ENVELOPE_REASON;
                 if (!complete) {
-                  hs.skipReason = "helper-exited-without-envelope";
+                  hs.skipReason = MISSING_ENVELOPE_REASON;
                   hs.skipClass = "ran-unusable";
                 }
               }
@@ -214,7 +212,7 @@ const ALLOWED_FLAGS: Record<
 };
 
 function flags(argv: string[]): Record<string, string> | null {
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null);
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i];
     const v = argv[i + 1];

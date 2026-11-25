@@ -36,7 +36,7 @@ flow-review-bg wait --worktree "$WORKTREE"
 
 It prints one JSON line `{done, elapsedSec, helpers: {"gemini-lens": …,
 "gemini-intent-guess": …}}`, never launches anything, and a well-formed call
-exits 0 on every outcome. A malformed call (an unknown flag or an empty value)
+exits 0 on every outcome. A malformed call (an unknown, repeated or empty flag)
 exits 2 with the usage text: correct the call to the form shown and re-run it;
 if it still fails, record both helpers as `gemini-not-awaited` and proceed,
 never stopping the review. Each helper entry carries `outcome`, `ran`, the

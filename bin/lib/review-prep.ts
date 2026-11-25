@@ -31,8 +31,7 @@ import {
   validatePrReviewResult,
   type PrReviewResult,
 } from "./pr-review-result-schema";
-import { writeSkippedState } from "./review-bg";
-import { bgPaths, bgRunOutputs } from "./review-bg-state";
+import { stopAndClearRun, writeSkippedState } from "./review-bg";
 
 export type ExecResult = { stdout: string; stderr: string; exitCode: number };
 export type ExecFn = (argv: string[], opts?: { cwd?: string }) => ExecResult;
@@ -80,6 +79,8 @@ export type ReviewPrepOptions = {
   deleteFile?: (p: string) => void;
   // Raw ~/.flow/config.json text, for the `review.gemini` gate.
   readConfig?: () => string;
+  // Stops a live Gemini watchdog, then clears its run; tests inject a fake.
+  stopBgRun?: (worktree: string) => void;
 };
 
 const COMMITS_JQ =
@@ -368,13 +369,7 @@ export async function runReviewPrep(
 
   const criticalSkips = skips.filter((s) => s.critical).map((s) => s.step);
 
-  const clearBgRun = () => {
-    for (const f of [
-      ...bgRunOutputs(opts.worktree),
-      bgPaths(opts.worktree).state,
-    ])
-      deleteFile(f);
-  };
+  const clearBgRun = () => (opts.stopBgRun ?? stopAndClearRun)(opts.worktree);
   if (state.toUpperCase() !== "OPEN" || criticalSkips.length > 0) {
     clearBgRun();
   } else {

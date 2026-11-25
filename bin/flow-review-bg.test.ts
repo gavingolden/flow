@@ -222,6 +222,28 @@ describe("runWait", () => {
     }
   });
 
+  it("keeps a helper's own skip reason from its envelope instead of the missing-envelope fallback", async () => {
+    const h = state().helpers["gemini-lens"];
+    const t = setup(
+      state({
+        helpers: {
+          "gemini-lens": { ...h, status: "done", outcome: "complete" },
+          "gemini-intent-guess": { ...h, status: "done", outcome: "complete" },
+        },
+      }),
+    );
+    t.files.set(
+      P.lensEnvelope,
+      '{"ran":false,"skipReason":"agy-quota","skipClass":"environment"}\n',
+    );
+    const r = await runWait({ worktree: WT, maxSec: 10 }, t.deps);
+    expect(r.helpers["gemini-lens"]).toMatchObject({
+      ran: false,
+      skipReason: "agy-quota",
+      skipClass: "environment",
+    });
+  });
+
   it("reports gemini-not-launched without launching when no state matches the head", async () => {
     const t = setup(state(), "other-head");
     const r = await runWait({ worktree: WT, maxSec: 10 }, t.deps);
@@ -252,6 +274,7 @@ describe("run (CLI)", () => {
     [["wait", "--worktree", "   "]],
     [["wait", "--worktree", "/w", "--max-sec", ""]],
     [["wait", "--worktree", "/w", "--worktree", "/x"]],
+    [["wait", "--worktree", "/w", "--__proto__", "x"]],
   ])("exits 2 on usage error %j", async (argv) => {
     expect(await run(argv as string[], () => {})).toBe(2);
   });

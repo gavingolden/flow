@@ -145,6 +145,26 @@ function clearStale(worktree: string, io: StateIO): void {
   for (const f of bgRunOutputs(worktree)) io.removeFile(f);
 }
 
+function stopLiveRun(worktree: string, deps: StartDeps): void {
+  const existing = readReviewBgState(deps.io.readFile(bgPaths(worktree).state));
+  if (existing !== null && existing.watchdog !== null)
+    supersede(existing, deps);
+}
+
+// Stops any live watchdog before deleting the state that records its pid, so a
+// cleared run can never leave an orphan that rewrites the cleared outputs.
+export function stopAndClearRun(
+  worktree: string,
+  deps: StartDeps = realStartDeps(),
+): void {
+  const p = bgPaths(worktree);
+  stopLiveRun(worktree, deps);
+  clearStale(worktree, deps.io);
+  deps.io.removeFile(p.state);
+  deps.io.removeFile(p.snapshot);
+  rmdirIfEmpty(p.scratch, deps.io.removeDir);
+}
+
 function supersede(old: ReviewBgState, deps: StartDeps): void {
   const wd = old.watchdog;
   if (
@@ -297,10 +317,12 @@ export function writeSkippedState(
   reason: string,
   io: StateIO = realStateIO(),
   now: () => number = Date.now,
+  deps: StartDeps = { ...realStartDeps(), io },
 ): ReviewBgState {
   const p = bgPaths(worktree);
   const scope = readScope(io, worktree);
   io.mkdirp(p.tmp);
+  stopLiveRun(worktree, deps);
   clearStale(worktree, io);
   const state = newState(
     worktree,

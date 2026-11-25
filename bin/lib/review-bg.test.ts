@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { startHelpers, writeSkippedState, type StartDeps } from "./review-bg";
+import {
+  startHelpers,
+  stopAndClearRun,
+  writeSkippedState,
+  type StartDeps,
+} from "./review-bg";
 import {
   bgPaths,
   giveUpSec,
@@ -315,6 +320,7 @@ describe("startHelpers diff snapshot", () => {
     expect(JSON.parse(d.files.get(P.lensEnvelope)!).skipReason).toBe(
       "gemini-diff-unreadable",
     );
+    expect(d.removedDirs).toContain(P.scratch);
   });
 });
 
@@ -412,5 +418,84 @@ describe("resolveGeminiSkip", () => {
     expect(resolveGeminiSkip("gemini-lens", s, '{"ran":false}', "abc")).toEqual(
       expected,
     );
+  });
+});
+
+describe("stopAndClearRun", () => {
+  const liveState = (): string => {
+    const seed = makeDeps({});
+    return JSON.stringify(
+      startHelpers({ worktree: WT, config: CONFIG }, seed.deps),
+    );
+  };
+
+  it("kills a recorded live watchdog before it deletes the state and outputs", () => {
+    let alive = true;
+    const order: string[] = [];
+    const d = makeDeps(
+      {
+        [P.state]: liveState(),
+        [P.lensOut]: "stale",
+        [P.snapshot]: "diff",
+      },
+      {
+        isAlive: () => alive,
+        pidStartEpoch: () => 77,
+        killPid: (pid, sig) => {
+          order.push(`kill:${pid}:${sig}:state=${d.files.has(P.state)}`);
+          alive = false;
+        },
+      },
+    );
+    stopAndClearRun(WT, d.deps);
+    expect(order).toEqual(["kill:4242:SIGTERM:state=true"]);
+    for (const f of [P.state, P.lensOut, P.snapshot]) {
+      expect(d.files.has(f), f).toBe(false);
+    }
+    expect(d.removedDirs).toContain(P.scratch);
+  });
+
+  it("kills nothing when there is no state or no recorded watchdog", () => {
+    const none = makeDeps({ [P.lensOut]: "stale" });
+    stopAndClearRun(WT, none.deps);
+    expect(none.kills).toEqual([]);
+    expect(none.files.has(P.lensOut)).toBe(false);
+
+    const state = JSON.parse(liveState());
+    state.watchdog = null;
+    const noWd = makeDeps({ [P.state]: JSON.stringify(state) });
+    stopAndClearRun(WT, noWd.deps);
+    expect(noWd.kills).toEqual([]);
+    expect(noWd.files.has(P.state)).toBe(false);
+  });
+
+  it("writeSkippedState stops a live watchdog before overwriting its state", () => {
+    let alive = true;
+    const d = makeDeps(
+      { [P.state]: liveState() },
+      {
+        isAlive: () => alive,
+        pidStartEpoch: () => 77,
+        killPid: () => {
+          alive = false;
+        },
+      },
+    );
+    const kills: number[] = [];
+    const killPid = d.deps.killPid;
+    d.deps.killPid = (pid, sig) => {
+      kills.push(pid);
+      killPid(pid, sig);
+    };
+    writeSkippedState(
+      WT,
+      "gemini-helper-missing",
+      d.deps.io,
+      undefined,
+      d.deps,
+    );
+    expect(kills).toEqual([4242]);
+    expect(alive).toBe(false);
+    expect(readReviewBgState(d.files.get(P.state)!)?.watchdog).toBeNull();
   });
 });

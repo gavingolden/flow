@@ -115,7 +115,8 @@ export function bgRunOutputs(worktree: string): string[] {
   return [p.lensEnvelope, p.intentEnvelope, p.lensOut, p.intentOut];
 }
 
-export const MISSING_ENVELOPE_REASON = "helper-exited-without-envelope";
+export const MISSING_ENVELOPE_REASON =
+  "helper-exited-without-envelope" as const;
 
 // The helper paths a run always uses, rebuilt from the worktree layout so a
 // state file written by an agent cannot redirect them elsewhere on disk.
