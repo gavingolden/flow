@@ -243,6 +243,13 @@ describe("PLAYWRIGHT_INSTALL_DENY_RULES", () => {
     "npm exec playwright install chromium",
     "pnpm exec playwright install chromium",
     "yarn playwright install chromium",
+    "npx -y playwright install chromium",
+    "npx --yes playwright install",
+    "npx @playwright/test install",
+    "pnpm playwright install chromium",
+    "pnpm dlx playwright install",
+    "bun x playwright install chromium",
+    "./node_modules/.bin/playwright install chromium",
   ])("denies %s", (cmd) => {
     expect(denies(cmd), cmd).toBe(true);
   });

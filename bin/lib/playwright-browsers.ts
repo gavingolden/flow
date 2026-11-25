@@ -37,11 +37,17 @@ export type EnsureDeps = PlaywrightDeps & {
   installEnabled: () => boolean;
   /** `name version` of the resolved Playwright package, or null. */
   readPackageVersion: (modulePath: string) => string | null;
+  /** Whether this Playwright's browsers.json lists a chromium-headless-shell build. */
+  listsHeadlessShell: (modulePath: string) => boolean;
   runInstall: (
     worktree: string,
     cliPath: string,
     timeoutMs: number,
-  ) => Promise<{ status: number | null; timedOut: boolean }>;
+  ) => Promise<{
+    status: number | null;
+    timedOut: boolean;
+    outputTail?: string;
+  }>;
   now: () => number;
   record: (attrs: Record<string, unknown>) => void;
 };
@@ -90,6 +96,7 @@ export function usesPlaywright(
 export function pinnedBuildInstalled(
   exe: string,
   exists: (p: string) => boolean,
+  requireHeadlessShell = true,
 ): { installed: boolean; revision: string | null } {
   const parts = exe.split(path.sep);
   const idx = parts.findIndex((s) => /^chromium-\d+$/.test(s));
@@ -101,25 +108,33 @@ export function pinnedBuildInstalled(
   return {
     installed:
       marker(`chromium-${revision}`) &&
-      marker(`chromium_headless_shell-${revision}`),
+      (!requireHeadlessShell || marker(`chromium_headless_shell-${revision}`)),
     revision,
   };
 }
 
-function runInstallDefault(
+const OUTPUT_TAIL_BYTES = 4000;
+
+export function runInstallDefault(
   worktree: string,
   cliPath: string,
   timeoutMs: number,
-): Promise<{ status: number | null; timedOut: boolean }> {
+): Promise<{ status: number | null; timedOut: boolean; outputTail: string }> {
   return new Promise((resolve) => {
     // Detached: the child leads its own process group so a timeout kills the
-    // installer and its download children. Output goes to stderr only, so
-    // stdout path parsing by callers is untouched.
+    // installer and its download children. Output is piped and only a bounded
+    // tail is kept, so the caller can surface it when the install fails.
     const child = spawn("node", [cliPath, "install", "chromium"], {
       cwd: worktree,
       detached: true,
-      stdio: ["ignore", 2, 2],
+      stdio: ["ignore", "pipe", "pipe"],
     });
+    let outputTail = "";
+    const collect = (chunk: Buffer) => {
+      outputTail = (outputTail + chunk.toString()).slice(-OUTPUT_TAIL_BYTES);
+    };
+    child.stdout?.on("data", collect);
+    child.stderr?.on("data", collect);
     const killGroup = (signal: NodeJS.Signals) => {
       if (!child.pid) return;
       try {
@@ -149,13 +164,36 @@ function runInstallDefault(
     };
     child.on("error", () => {
       cleanup();
-      resolve({ status: null, timedOut });
+      resolve({ status: null, timedOut, outputTail });
     });
-    child.on("close", (code) => {
+    // "exit" not "close": a killed installer's orphaned grandchild can hold the
+    // pipes open, which would delay "close" past the timeout.
+    child.on("exit", (code) => {
       cleanup();
-      resolve({ status: code, timedOut });
+      resolve({ status: code, timedOut, outputTail });
     });
   });
+}
+
+function listsHeadlessShellDefault(modulePath: string): boolean {
+  let dir = path.dirname(modulePath);
+  for (let i = 0; i < 6; i++) {
+    for (const rel of [
+      "playwright-core/browsers.json",
+      "node_modules/playwright-core/browsers.json",
+    ]) {
+      try {
+        const json = JSON.parse(readFileSync(path.join(dir, rel), "utf8"));
+        return (json?.browsers ?? []).some(
+          (b: { name?: string }) => b?.name === "chromium-headless-shell",
+        );
+      } catch {
+        // not here; keep walking up
+      }
+    }
+    dir = path.dirname(dir);
+  }
+  return false;
 }
 
 function readPackageVersionDefault(modulePath: string): string | null {
@@ -189,6 +227,7 @@ export const defaultEnsureDeps: EnsureDeps = {
     ),
   installEnabled: () => readPlaywrightInstallEnabled(),
   readPackageVersion: readPackageVersionDefault,
+  listsHeadlessShell: listsHeadlessShellDefault,
   runInstall: runInstallDefault,
   now: () => Date.now(),
   record: (attrs) => recordEvent("playwright.install", attrs),
@@ -242,7 +281,8 @@ export async function ensurePinnedBrowser(
     packageVersion = deps.readPackageVersion(modulePath);
     const exe = deps.executablePath(worktree, modulePath);
     if (exe === null) return done("package-missing");
-    const probe = pinnedBuildInstalled(exe, deps.exists);
+    const needShell = deps.listsHeadlessShell(modulePath);
+    const probe = pinnedBuildInstalled(exe, deps.exists, needShell);
     revision = probe.revision;
     if (probe.installed) return done("present");
     if (!deps.installEnabled()) return done("disabled", null, true);
@@ -258,9 +298,10 @@ export async function ensurePinnedBrowser(
     const run = await deps.runInstall(worktree, cliPath, timeoutMs);
     const exe2 = deps.executablePath(worktree, modulePath);
     const after =
-      exe2 === null ? null : pinnedBuildInstalled(exe2, deps.exists);
+      exe2 === null ? null : pinnedBuildInstalled(exe2, deps.exists, needShell);
     if (after?.revision) revision = after.revision;
     if (after?.installed) return done("installed", null, true);
+    if (run.outputTail) process.stderr.write(`${run.outputTail.trimEnd()}\n`);
     const reason = run.timedOut
       ? "install-timeout"
       : run.status !== 0
@@ -272,14 +313,29 @@ export async function ensurePinnedBrowser(
   }
 }
 
+const REASON_WORDS: Record<string, string> = {
+  "install-timeout": "the download timed out",
+  "no-time-budget": "there was not enough time left to download it",
+  "still-missing-after-install":
+    "the installer finished but the build is still missing",
+  "ensure-error": "the check itself hit an unexpected error",
+};
+
+function reasonWords(reason: string | null): string {
+  if (reason === null) return "unknown cause";
+  if (REASON_WORDS[reason]) return REASON_WORDS[reason];
+  const exit = /^install-exit-(.+)$/.exec(reason);
+  return exit ? `the installer exited with status ${exit[1]}` : reason;
+}
+
 export function formatEnsureLine(r: EnsureResult): string | null {
   switch (r.outcome) {
     case "installed":
       return `Playwright browser: installed chromium build ${r.revision} for ${r.packageVersion ?? "this repo's Playwright"} (${Math.round(r.durationMs / 1000)} s)`;
     case "failed":
-      return `Playwright browser: not installed (${r.reason}) — pre-push browser tests and the design review will fail until \`npx playwright install chromium\` is run`;
+      return `Playwright browser: not installed (${reasonWords(r.reason)}) — pre-push browser tests and the design review may fail until \`npx playwright install chromium\` is run`;
     case "disabled":
-      return `Playwright browser: chromium build ${r.revision} is missing and the download is turned off (playwright.installBrowsers is false)`;
+      return `Playwright browser: chromium build ${r.revision} is missing and the download is turned off (playwright.installBrowsers is false) — pre-push browser tests and the design review may fail until \`npx playwright install chromium\` is run`;
     default:
       return null;
   }

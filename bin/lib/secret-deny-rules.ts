@@ -89,6 +89,18 @@ export const PLAYWRIGHT_INSTALL_DENY_RULES: readonly string[] = [
   "bunx playwright install",
   "pnpm exec playwright install",
   "yarn playwright install",
+  "npx -y playwright install",
+  "npx --yes playwright install",
+  "npx @playwright/test install",
+  "npx -y @playwright/test install",
+  "npx --yes @playwright/test install",
+  "pnpm playwright install",
+  "pnpm dlx playwright install",
+  "pnpm dlx @playwright/test install",
+  "bun x playwright install",
+  "bun x @playwright/test install",
+  "./node_modules/.bin/playwright install",
+  "node_modules/.bin/playwright install",
 ].map((cmd) => `Bash(${cmd} *)`);
 
 /**

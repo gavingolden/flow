@@ -44,7 +44,9 @@
  * Also accepted: `flow-playwright-ensure` runs repo code (the repo's own
  * Playwright CLI) and downloads the pinned Chromium build from Playwright's
  * CDN without classifier review. It runs only that CLI's `install chromium`,
- * bounded by a 300 s cap, and prints at most one status line.
+ * bounded by a 300 s cap. Its stdout stays empty and one status line goes to
+ * stderr; the installer's own output is kept (bounded tail) and echoed to
+ * stderr only when the install did not succeed.
  *
  * Also accepted: `flow-safeguards` rewrites files (`compact --in-place`,
  * `map-paths`) and appends or writes logs without classifier review. It

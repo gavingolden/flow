@@ -46,7 +46,7 @@ describe("flow-playwright-ensure", () => {
       result({ outcome: "failed", reason: "install-timeout" }),
     );
     expect(await run([], deps)).toBe(0);
-    expect(out[0]).toContain("not installed (install-timeout)");
+    expect(out[0]).toContain("not installed (the download timed out)");
   });
 
   it("exits 2 with usage on an unknown argument", async () => {

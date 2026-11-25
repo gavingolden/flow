@@ -382,7 +382,7 @@ const DESCRIPTORS: Descriptor[] = [
   {
     key: "playwright.installBrowsers",
     meaning:
-      "whether worktree creation downloads the Chromium build a repo's Playwright version pins when it is missing",
+      "whether worktree creation and the merge-time lockfile refresh download the Chromium build a repo's Playwright version pins when it is missing",
     resolve: (read) => strictFalseOptOut(read, "playwright.installBrowsers"),
   },
   {

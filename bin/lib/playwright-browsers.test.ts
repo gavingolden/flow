@@ -1,9 +1,13 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   ensurePinnedBrowser,
   formatEnsureLine,
   INSTALL_TIMEOUT_MS,
   pinnedBuildInstalled,
+  runInstallDefault,
   readPlaywrightInstallEnabled,
   usesPlaywright,
   type EnsureDeps,
@@ -39,6 +43,7 @@ function makeDeps(
     hasRootConfig: () => false,
     installEnabled: () => true,
     readPackageVersion: () => "@playwright/test 1.65.1",
+    listsHeadlessShell: () => true,
     runInstall,
     now: () => (t += 1000),
     record,
@@ -155,6 +160,7 @@ describe("ensurePinnedBrowser", () => {
     expect(runInstall).not.toHaveBeenCalled();
     expect(record).toHaveBeenCalledTimes(1);
     expect(formatEnsureLine(r)).toContain("download is turned off");
+    expect(formatEnsureLine(r)).toContain("npx playwright install chromium");
   });
 
   it("refuses to start an install with under 30 s left", async () => {
@@ -188,17 +194,24 @@ describe("ensurePinnedBrowser", () => {
   });
 
   it.each([
-    [{ status: 3, timedOut: false }, "install-exit-3"],
-    [{ status: null, timedOut: true }, "install-timeout"],
-    [{ status: 0, timedOut: false }, "still-missing-after-install"],
-  ])("fails with %j as %s", async (run, reason) => {
+    [{ status: 3, timedOut: false }, "install-exit-3", "exited with status 3"],
+    [{ status: null, timedOut: true }, "install-timeout", "timed out"],
+    [
+      { status: 0, timedOut: false },
+      "still-missing-after-install",
+      "still missing",
+    ],
+  ])("fails with %j as %s", async (run, reason, words) => {
     const { deps, record } = makeDeps();
     deps.runInstall = vi.fn(async () => run);
     const r = await ensurePinnedBrowser("/wt", {}, deps);
     expect(r.outcome).toBe("failed");
     expect(r.reason).toBe(reason);
     expect(record).toHaveBeenCalledTimes(1);
-    expect(formatEnsureLine(r)).toContain(`not installed (${reason})`);
+    const line = formatEnsureLine(r) ?? "";
+    expect(line).toContain(words);
+    expect(line).toContain("may fail");
+    expect(line).not.toContain(reason);
   });
 
   it("never throws", async () => {
@@ -278,11 +291,74 @@ describe("usesPlaywright", () => {
   });
 });
 
+describe("headless shell requirement", () => {
+  it("is present with only the full build when no headless shell is pinned", async () => {
+    const { deps, runInstall } = makeDeps({
+      present: new Set([FULL]),
+      listsHeadlessShell: () => false,
+    });
+    const r = await ensurePinnedBrowser("/wt", {}, deps);
+    expect(r.outcome).toBe("present");
+    expect(runInstall).not.toHaveBeenCalled();
+  });
+
+  it("installs the full build when no headless shell is pinned and it is missing", async () => {
+    const { deps } = makeDeps({
+      listsHeadlessShell: () => false,
+      installAdds: [FULL],
+    });
+    const r = await ensurePinnedBrowser("/wt", {}, deps);
+    expect(r.outcome).toBe("installed");
+  });
+
+  it("pinnedBuildInstalled ignores the shell marker when not required", () => {
+    const has = (p: string) => p === FULL;
+    expect(pinnedBuildInstalled(EXE, has, false).installed).toBe(true);
+    expect(pinnedBuildInstalled(EXE, has, true).installed).toBe(false);
+  });
+});
+
 describe("pinnedBuildInstalled", () => {
   it("returns no revision for a path without a chromium-<rev> segment", () => {
     expect(pinnedBuildInstalled("/x/y", () => true)).toEqual({
       installed: false,
       revision: null,
     });
+  });
+});
+
+describe("runInstallDefault timeout", () => {
+  it("kills the installer and its child processes", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "pw-timeout-"));
+    try {
+      const pidFile = path.join(dir, "grandchild.pid");
+      const cli = path.join(dir, "cli.js");
+      writeFileSync(
+        cli,
+        `const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const g = spawn("sleep", ["60"], { stdio: "ignore" });
+fs.writeFileSync(${JSON.stringify(pidFile)}, String(g.pid));
+console.log("downloading");
+setInterval(() => {}, 1000);
+`,
+      );
+      const run = await runInstallDefault(dir, cli, 1000);
+      expect(run.timedOut).toBe(true);
+      expect(run.outputTail).toContain("downloading");
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      let alive = true;
+      for (let i = 0; i < 20 && alive; i++) {
+        try {
+          process.kill(pid, 0);
+          await new Promise((r) => setTimeout(r, 100));
+        } catch {
+          alive = false;
+        }
+      }
+      expect(alive).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

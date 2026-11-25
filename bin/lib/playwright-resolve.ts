@@ -21,7 +21,7 @@ export type PlaywrightStatus = {
 export const PLAYWRIGHT_MISSING_HINT =
   "UI review screenshots need Playwright in this repo — run `npm i -D @playwright/test && npx playwright install chromium`";
 export const PLAYWRIGHT_BROWSERS_HINT =
-  "UI review screenshots need the browser build this repo's Playwright pins, and flow did not install it when the worktree was created (turned off, or the download failed — see the worktree step's output) — run `npx playwright install chromium`";
+  "UI review screenshots need the browser build this repo's Playwright pins, and flow did not install it when the worktree was created (it was turned off, the download failed or timed out, or the worktree predates this check — see the worktree step's output) — run `npx playwright install chromium`";
 
 export type PlaywrightDeps = {
   /** Absolute path of the Playwright module as the worktree sees it, or null. */
