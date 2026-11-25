@@ -224,8 +224,8 @@ export function verdictNotice(
 /**
  * At merged / cancelled / gated / needs-human turn ends: record the message's
  * un-numbered Untracked / Manual action (and, at finished phases, Unsolved)
- * bullets into the ledger, refresh the badge only when something was
- * recorded, and print the close verdict as one `systemMessage` unless the
+ * bullets into the ledger, refresh the badges on every such turn end
+ * (recorded items or not), and print the close verdict as one `systemMessage` unless the
  * message already carries the helper's matching `WINDOW:` row. Best-effort;
  * never changes the exit code. Epic windows are out of scope.
  */
@@ -282,14 +282,14 @@ function closeVerdictHook(
           if (!before.has(i.id)) recorded.push(i.id);
         }
         cur = next;
-        if (recorded.length > 0) {
-          try {
-            deps.publishBadges?.(cur);
-          } catch {
-            // publish-only
-          }
-        }
       }
+    }
+    // Every verdict-phase turn end republishes, so a window open before an
+    // upgrade gets its badges (incl. @flow-attn) on its next reply.
+    try {
+      deps.publishBadges?.(cur);
+    } catch {
+      // publish-only
     }
     const v = closeVerdict(cur);
     const notice = verdictNotice(

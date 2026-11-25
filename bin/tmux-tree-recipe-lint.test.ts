@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ATTN_TIERS } from "./lib/close-verdict";
 import { PHASE_SHORT } from "./lib/state";
 
 /**
@@ -53,6 +54,7 @@ describe("docs/tmux-tree.conf", () => {
       "@flow-epic",
       "@flow-kind",
       "@flow-pr",
+      "@flow-attn",
     ])
       expect(PUBLISHED.has(o), o).toBe(true);
     const used = line.match(/@[a-z][a-z-]*/g) ?? [];
@@ -60,19 +62,18 @@ describe("docs/tmux-tree.conf", () => {
     for (const opt of used) expect(PUBLISHED.has(opt), opt).toBe(true);
   });
 
-  it("should compare phase-short only against real PHASE_SHORT values", () => {
-    const values = new Set(Object.values(PHASE_SHORT));
-    const compared = [
-      ...line.matchAll(/#\{==:#\{@flow-phase-short\},([^}]+)\}/g),
-    ].map((m) => m[1]);
+  it("should compare @flow-attn only against ATTN_TIERS values", () => {
+    const tiers = new Set<string>(ATTN_TIERS);
+    const compared = [...line.matchAll(/#\{==:#\{@flow-attn\},([^}]+)\}/g)].map(
+      (m) => m[1],
+    );
     expect(compared.length).toBeGreaterThan(0);
-    for (const v of compared) expect(values.has(v), v).toBe(true);
-    expect([...values].some((v) => v.endsWith("?"))).toBe(true);
+    for (const v of compared) expect(tiers.has(v), v).toBe(true);
   });
 
-  it("should match waiting phases with *[?], not a bare *?", () => {
-    expect(line).toContain("#{m:*[?],");
-    expect(line).not.toMatch(/#\{m:\*\?,/);
+  it("should not derive the flag from @flow-phase-short", () => {
+    expect(line).not.toMatch(/#\{m:[^,]*,#\{@flow-phase-short\}/);
+    expect(line).not.toMatch(/#\{==:#\{@flow-phase-short\},/);
   });
 
   it("should expand the PR number only inside its guard with a literal # escape", () => {

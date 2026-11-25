@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  attnTier,
+  type AttnTier,
   badgeShort,
   closeVerdict,
   isOpenItem,
   verdictWord,
   windowLine,
 } from "./close-verdict";
-import type { PipelineState, UntrackedItem } from "./state";
+import type { PipelinePhase, PipelineState, UntrackedItem } from "./state";
 
 function item(id: number, extra: Partial<UntrackedItem> = {}): UntrackedItem {
   return { id, title: `item ${id}`, source: "pr-review", at: "t", ...extra };
@@ -158,6 +160,69 @@ describe("badgeShort", () => {
       badgeShort(st("cancelled", [item(1)])),
     ]) {
       expect(v).toMatch(/^[\x20-\x7e]{1,7}$/);
+    }
+  });
+});
+
+// Typed Record<PipelinePhase, ...>: a new phase fails typecheck until tiered.
+const PHASE_TIERS: Record<PipelinePhase, AttnTier> = {
+  starting: "run",
+  triaging: "run",
+  "worktree-create": "run",
+  planning: "run",
+  implementing: "run",
+  "installing-skills": "run",
+  verifying: "run",
+  "ci-wait": "run",
+  reviewing: "run",
+  gating: "run",
+  merging: "run",
+  "epic-designing": "run",
+  "epic-validating": "run",
+  "epic-pr-open": "run",
+  "plan-pending-review": "needs",
+  "plan-pending-interview": "needs",
+  "plan-review-pending": "run",
+  "triaged-no-change": "needs",
+  "triage-pending-clarification": "needs",
+  "triage-pending-interview": "needs",
+  "approval-pending-clarification": "needs",
+  "ci-wait-pending": "run",
+  "browser-retry-pending": "needs",
+  "checkpoint-pending-clear": "needs",
+  "epic-plan-review-pending": "run",
+  "epic-design-pending-review": "needs",
+  merged: "close",
+  gated: "needs",
+  "needs-human": "needs",
+  cancelled: "close",
+  "epic-approved": "close",
+};
+
+describe("attnTier", () => {
+  it.each(Object.entries(PHASE_TIERS))("tiers %s as %s", (phase, tier) => {
+    expect(attnTier(st(phase))).toBe(tier);
+  });
+
+  it("keeps an open untracked item on a finished window at needs", () => {
+    expect(attnTier(st("merged", [item(1)]))).toBe("needs");
+    expect(attnTier(st("cancelled", [item(1)]))).toBe("needs");
+    expect(attnTier(st("merged", [item(1, { droppedAt: "t" })]))).toBe("close");
+  });
+
+  it("derives epic-design from the paused phase at needs-human", () => {
+    const phaseLog = [
+      { phase: "epic-designing", at: "t" },
+      { phase: "needs-human", at: "t" },
+    ] as PipelineState["phaseLog"];
+    expect(attnTier(st("needs-human", [], { phaseLog }))).toBe("needs");
+  });
+
+  it("is untiered (null) for recorded epic-run and manager kinds at any phase", () => {
+    for (const kind of ["epic-run", "manager"] as const) {
+      for (const phase of Object.keys(PHASE_TIERS)) {
+        expect(attnTier(st(phase, [], { kind }))).toBeNull();
+      }
     }
   });
 });

@@ -47,7 +47,7 @@ export type PaneReadViolation = { file: string; line: number; text: string };
 const READ_VERB_RE =
   /\bshow-options\b|["'`]showo["'`]|\bshow-window-options\b|["'`]showw["'`]|\blist-windows\b|["'`]lsw["'`]|\bdisplay-message\b|["'`]show["'`]|["'`]display["'`]|\blist-panes\b|["'`]lsp["'`]/;
 const OPTION_TOKEN_RE =
-  /@flow-[A-Za-z0-9_-]+|FLOW_SLUG_OPTION|FLOW_KIND_OPTION|FLOW_PHASE_OPTION|FLOW_PHASE_SHORT_OPTION|FLOW_REPO_OPTION|FLOW_EPIC_OPTION|FLOW_PR_OPTION/;
+  /@flow-[A-Za-z0-9_-]+|FLOW_SLUG_OPTION|FLOW_KIND_OPTION|FLOW_PHASE_OPTION|FLOW_PHASE_SHORT_OPTION|FLOW_REPO_OPTION|FLOW_EPIC_OPTION|FLOW_PR_OPTION|FLOW_ATTN_OPTION/;
 
 /**
  * A file is a violation when it contains a tmux read verb (`show-options`,

@@ -21,12 +21,12 @@ import {
   type PipelineState,
 } from "./state";
 import { sleepSync } from "./sleep";
-import { badgeShort } from "./close-verdict";
+import { attnTier, badgeShort } from "./close-verdict";
 
 export const FLOW_SESSION = "flow";
 /**
  * Window option carrying the pipeline's canonical slug — the ONE flow-side
- * exception among the six options below: read back by `LIST_WINDOWS_FORMAT`
+ * exception among the seven options below: read back by `LIST_WINDOWS_FORMAT`
  * (via `listWindows()` / `findWindowBySlug`) for the `flow ls` / `flow attach`
  * / `flow done` window join. Not a slug-*resolution* input — ambient
  * identity resolves from `FLOW_SLUG` alone (`resolveSlugAmbient` in
@@ -79,6 +79,16 @@ export const FLOW_EPIC_OPTION = "@flow-epic";
  * see `docs/configuration.md`'s "tmux status-bar bindings" note.
  */
 export const FLOW_PHASE_SHORT_OPTION = "@flow-phase-short";
+/**
+ * Window option carrying the closed attention tier `needs` | `close` | `run`
+ * (`attnTier` in `./close-verdict`, built on the close verdict `flow ls` shows
+ * as CLOSE?); empty means untiered (epic-run / manager windows, or not yet
+ * republished). Labels windows only — a status format can colour or flag by
+ * it; flow never reorders windows. Same additive/opt-in/publish-only/
+ * best-effort contract as `@flow-phase-short`. No flow-side reader — see
+ * `docs/configuration.md`'s "tmux status-bar bindings" note.
+ */
+export const FLOW_ATTN_OPTION = "@flow-attn";
 /**
  * PANE option (not window) recording which supervisor kind is currently
  * running in this pane — `"feature"` | `"epic-design"` | `"epic-run"`. Same
@@ -853,9 +863,11 @@ export type SetWindowPhaseDeps = {
  *
  * `@flow-phase-short` is `badgeShort(state) ?? shortPhase(phase)`: a finished
  * feature window whose ledger still holds undecided items publishes `merged?`
- * / `cancel?` (a trailing `?` is the established "waiting on you" mark),
- * otherwise the plain `merged` / `cancel`. ASCII and <= 7 columns, derived
- * from state only (publish-only — nothing reads the option back).
+ * / `cancel?`, otherwise the plain `merged` / `cancel`. ASCII and <= 7 columns, derived
+ * from state only (publish-only — nothing reads the option back). The `?` is
+ * display text, not a reliable waiting-on-you mark (`ci?` is self-running;
+ * `gated` needs you with no `?`) — style windows by `@flow-attn`, the tier
+ * from `attnTier`, published empty when the state is untiered.
  *
  * Ends with a best-effort `refresh-client -S` so a phase change repaints
  * the status line immediately instead of waiting out the session's
@@ -939,6 +951,7 @@ export function publishStateBadges(
   const epicBadge =
     state.epic?.slug ?? (resolvedKind === "feature" ? "" : state.slug);
   spawn(buildSetOptionArgs(window.id, FLOW_EPIC_OPTION, epicBadge));
+  spawn(buildSetOptionArgs(window.id, FLOW_ATTN_OPTION, attnTier(state) ?? ""));
   if (state.kind !== undefined) {
     // Shape-validate $TMUX_PANE before it becomes a `-t` target: tmux's `-t`
     // accepts full target specs (`flow:2.0`), so a stale or hand-exported

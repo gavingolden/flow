@@ -720,7 +720,7 @@ passes through as written; before, it was clamped to `9m`.
 ## tmux status-bar bindings (opt-in)
 
 flow's `@flow-repo` / `@flow-phase` / `@flow-phase-short` / `@flow-epic` /
-`@flow-pr` tmux window options are publish-only mirrors — flow writes them
+`@flow-pr` / `@flow-attn` tmux window options are publish-only mirrors — flow writes them
 on its own windows, but no flow code reads them back; the only user is your
 own tmux status-bar format. Bind them yourself, e.g.:
 
@@ -734,12 +734,39 @@ set -g window-status-format '#{@flow-repo} #{@flow-phase-short}'
 `@flow-phase-short` is close-aware at finished feature windows: `merged?`
 or `cancel?` means the window still holds undecided items, and plain
 `merged` / `cancel` means nothing is open (a clean window is safe for
-`flow done`). A trailing `?` means the window is waiting on you, the same
-convention as `plan?` and `ci?`. The values are plain ASCII and fit the
+`flow done`). `@flow-phase-short` is display text only: a `?` also appears on
+some self-running waits such as `ci?`, and is absent on some windows that need
+you such as `gated`, `human` and `no-chg`. Style windows by `@flow-attn`
+instead. The values are plain ASCII and fit the
 7-column badge slot, so they render as text in a status bar or tree with no
 config change. The badge exists only under the tmux launcher; on the plain
 launcher the turn-end hook line and `flow ls`'s `CLOSE?` column carry the
 same verdict.
+
+`@flow-attn` is a closed three-value attention tier flow publishes beside the
+phase badge. Match it with `==`, for example `#{==:#{@flow-attn},needs}`:
+
+| Value   | Meaning                                                                                                                |
+| ------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `needs` | The pipeline needs you: a plan or question to answer, a PR to sign off, a stalled run, or undecided items after merge. |
+| `close` | Finished with nothing open; safe for `flow done`.                                                                      |
+| `run`   | Not known to need you: running, or crashed (`flow ls` shows `(crashed)`).                                              |
+
+| Window kind                    | Tier                                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| feature                        | From the same close verdict as `flow ls`'s `CLOSE?` column.                                                   |
+| epic design                    | `needs` at `needs-human` or design review pending; `close` at `epic-approved` / `cancelled`; `run` otherwise. |
+| epic run, manager, epic manage | Empty: untiered.                                                                                              |
+
+An empty or unset value means the window is untiered, or has not been
+republished since you upgraded (any reply in that window, or `flow feature
+resume`, republishes it). `@flow-attn` only labels windows, so you can colour
+or flag them; it never changes their order, and a new phase cannot land
+untiered. For example:
+
+```sh
+set -g window-status-format '#{?#{==:#{@flow-attn},needs},#[fg=yellow]!#[default] ,}#{@flow-repo} #{@flow-phase-short}'
+```
 
 After publishing these options flow issues a best-effort `tmux
 refresh-client -S`, so a phase change repaints your status bar
@@ -749,8 +776,8 @@ client to refresh, and that failure is discarded — the options are still
 published either way, and the publish-only/additive contract above is
 unchanged.
 
-`@flow-kind` is published on every flow window too, with one of three
-values (`feature` / `epic-design` / `epic-run`), and you're welcome to
+`@flow-kind` is published on every flow window too, with one of four
+values (`feature` / `epic-design` / `epic-run` / `manager`), and you're welcome to
 bind it into your status-bar format the same way. It is one of two
 sanctioned exceptions to the publish-only rule above: it is also read
 back by the `SessionStart:clear` hook (`resolveKindFromPane`) to resolve

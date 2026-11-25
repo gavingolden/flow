@@ -38,6 +38,7 @@ import {
   SEED_CORRUPTED_STDERR,
   setWindowEpic,
   setPaneKind,
+  publishStateBadges,
   capturePaneBySlug,
   type VerifiedLaunchResult,
 } from "./tmux";
@@ -1740,6 +1741,19 @@ function runResume(
   // resumed epic window's @flow-epic gets (re)set.
   if (preResume?.epic) {
     setWindowEpic(slug, preResume.epic.slug);
+  }
+
+  // A fresh window is seeded `start`, so its badges (incl. @flow-attn) read
+  // stale until the next state write; republish from the recorded state.
+  // Respawn reuses the window and its options. Best-effort, never changes the
+  // exit code.
+  if (!exists) {
+    try {
+      const published = readState(slug, options.stateDir);
+      if (published != null) publishStateBadges(published);
+    } catch {
+      // best-effort
+    }
   }
 
   // Launch breadcrumb, mirroring runFresh: fold attempts/outcome into the

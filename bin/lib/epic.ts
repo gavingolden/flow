@@ -94,6 +94,7 @@ import {
   respawnWindowVerified,
   setPaneKind,
   setWindowEpic,
+  publishStateBadges,
   windowExists,
   isPaneAlive,
   capturePaneBySlug,
@@ -1044,6 +1045,16 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // reuses the pane and never re-seeds window options, so a resumed epic-design
   // window needs this republish too. Never changes this command's exit code.
   setWindowEpic(slug, slug);
+  // A fresh window is seeded `start`; republish its badges (incl. @flow-attn)
+  // from the recorded state. Respawn keeps the window's options. Best-effort.
+  if (!exists) {
+    try {
+      const published = readState(slug, options.stateDir);
+      if (published != null) publishStateBadges(published);
+    } catch {
+      // best-effort
+    }
+  }
 
   // Phase + worktree + pr stay as the crash left them. The supervisor's first
   // real transition is what updates state.json.

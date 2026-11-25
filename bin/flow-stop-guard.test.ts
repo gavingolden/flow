@@ -1528,12 +1528,26 @@ describe("close-verdict hook line", () => {
     expect(gated.recordCalls).toEqual([]);
   });
 
-  it("publishes no badge when nothing was recorded", async () => {
-    const h = await runAt(fakeState("merged"), {
+  it("republishes at a verdict-phase turn end even when nothing was recorded", async () => {
+    const h = await runAt(fakeState("gated"), {
       message: block("**Untracked:** none"),
     });
     expect(h.recordCalls).toEqual([]);
-    expect(h.published).toEqual([]);
+    expect(h.published).toHaveLength(1);
+  });
+
+  it("does not republish at a non-verdict phase or for an epic kind", async () => {
+    const working = await runAt(fakeState("plan-pending-review"), {
+      message: block("**Untracked:** none"),
+    });
+    expect(working.published).toEqual([]);
+    const epic = await runAt(
+      fakeState("needs-human", { kind: "epic-design" }),
+      {
+        message: block("**Untracked:** none"),
+      },
+    );
+    expect(epic.published).toEqual([]);
   });
 
   it("treats an unconsumed gate record as the block once, then hedges on a block-less reply", async () => {
