@@ -54,7 +54,7 @@ What each column shows, left to right:
 | phase  | flow's short phase name, such as `impl`, `ci`, `plan?`, `gated`, `merged`                                                                                     |
 | title  | The window title: the short name flow gives each pipeline after triage (rename with `Ctrl-b ,`)                                                               |
 
-A window that was already open when you upgraded has no `!` until flow republishes it (on `flow feature resume`, at its next phase change, or when a feature window ends a turn at `gated`, `needs-human`, `merged` or `cancelled`); until then `flow ls`'s `CLOSE?` column shows which pipelines need you.
+A window that was already open when you upgraded has no `!` until flow republishes it (on resume, at its next phase change, or at the end of your next reply in it); until then `flow ls`'s `CLOSE?` column shows which pipelines need you.
 
 Windows that flow did not create keep their stock `Ctrl-b w` row, so the recipe is safe in a session that mixes flow and everything else. Sessions show their window count.
 

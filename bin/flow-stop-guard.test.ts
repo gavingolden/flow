@@ -1539,18 +1539,28 @@ describe("close-verdict hook line", () => {
     expect(h.published).toHaveLength(1);
   });
 
-  it("does not republish at a non-verdict phase or for an epic kind", async () => {
+  it("republishes badges only, never records or speaks, at a pending feature phase or an epic-design window", async () => {
     const working = await runAt(fakeState("plan-pending-review"), {
-      message: block("**Untracked:** none"),
+      message: block("**Untracked:**\n- stray bullet"),
     });
-    expect(working.published).toEqual([]);
+    expect(working.published).toHaveLength(1);
+    expect(working.recordCalls).toEqual([]);
+    expect(working.msgs).toEqual([]);
     const epic = await runAt(
       fakeState("needs-human", { kind: "epic-design" }),
       {
         message: block("**Untracked:** none"),
       },
     );
-    expect(epic.published).toEqual([]);
+    expect(epic.published).toHaveLength(1);
+    expect(epic.recordCalls).toEqual([]);
+  });
+
+  it("never republishes an untiered epic-run window", async () => {
+    const run = await runAt(fakeState("needs-human", { kind: "epic-run" }), {
+      message: block("**Untracked:** none"),
+    });
+    expect(run.published).toEqual([]);
   });
 
   it("treats an unconsumed gate record as the block once, then hedges on a block-less reply", async () => {
