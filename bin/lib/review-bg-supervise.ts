@@ -20,6 +20,7 @@ import {
   helperPaths,
   isTrustedConfigPath,
   MISSING_ENVELOPE_REASON,
+  ownsState,
   readReviewBgState,
   realStateIO,
   writeEnvelopeIfOwner,
@@ -238,6 +239,10 @@ export async function runSupervise(
       Math.max(...running.map((h) => initial.helpers[h].giveUpAtSec ?? 0)) +
       HARD_CAP_MARGIN_SEC;
     while (!stopped && !lost && resolved.size < running.length) {
+      if (!ownsState(worktree, generation, io)) {
+        lost = true;
+        break;
+      }
       const now = deps.nowSec();
       for (const helper of running) {
         if (resolved.has(helper) || stopped || lost) continue;

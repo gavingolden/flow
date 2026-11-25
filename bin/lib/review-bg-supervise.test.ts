@@ -287,6 +287,17 @@ describe("runSupervise signals and ownership", () => {
     expect(t.kills).toContainEqual([t.children[0]!.pid, "SIGTERM"]);
   });
 
+  it("stops its children and writes nothing when its state file was cleared", async () => {
+    const t = setup(stateFor("g", { guess: "skipped" }), {
+      [P.snapshot]: "diff",
+    });
+    t.hooks.push(() => void t.files.delete(P.state));
+    await runSupervise({ worktree: WT, generation: "g" }, t.deps);
+    expect(t.files.has(P.state)).toBe(false);
+    expect(t.files.get(P.snapshot)).toBe("diff");
+    expect(t.kills).toContainEqual([t.children[0]!.pid, "SIGTERM"]);
+  });
+
   it("refuses a state whose config path is outside the worktree and the flow config", async () => {
     const st = stateFor("g");
     st.configPath = "/etc/passwd";
