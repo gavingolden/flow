@@ -3,9 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { run, runWait, type WaitDeps } from "./flow-review-bg";
+import { startHelpers } from "./lib/review-bg";
 import {
   bgPaths,
   readReviewBgState,
+  realStateIO,
   writeReviewBgState,
   type ReviewBgState,
   type StateIO,
@@ -195,6 +197,53 @@ describe("runWait", () => {
     expect(r.done).toBe(false);
   });
 
+  it("reports a missing-envelope reason for a finished helper with no usable envelope", async () => {
+    const h = state().helpers["gemini-lens"];
+    const t = setup(
+      state({
+        helpers: {
+          "gemini-lens": { ...h, status: "done", outcome: "complete" },
+          "gemini-intent-guess": {
+            ...h,
+            status: "done",
+            outcome: "complete",
+          },
+        },
+      }),
+    );
+    const r = await runWait({ worktree: WT, maxSec: 10 }, t.deps);
+    expect(r.done).toBe(true);
+    for (const e of Object.values(r.helpers)) {
+      expect(e).toMatchObject({
+        ran: false,
+        skipReason: "helper-exited-without-envelope",
+        skipClass: "ran-unusable",
+      });
+    }
+  });
+
+  it("keeps a helper's own skip reason from its envelope instead of the missing-envelope fallback", async () => {
+    const h = state().helpers["gemini-lens"];
+    const t = setup(
+      state({
+        helpers: {
+          "gemini-lens": { ...h, status: "done", outcome: "complete" },
+          "gemini-intent-guess": { ...h, status: "done", outcome: "complete" },
+        },
+      }),
+    );
+    t.files.set(
+      P.lensEnvelope,
+      '{"ran":false,"skipReason":"agy-quota","skipClass":"environment"}\n',
+    );
+    const r = await runWait({ worktree: WT, maxSec: 10 }, t.deps);
+    expect(r.helpers["gemini-lens"]).toMatchObject({
+      ran: false,
+      skipReason: "agy-quota",
+      skipClass: "environment",
+    });
+  });
+
   it("reports gemini-not-launched without launching when no state matches the head", async () => {
     const t = setup(state(), "other-head");
     const r = await runWait({ worktree: WT, maxSec: 10 }, t.deps);
@@ -218,12 +267,67 @@ describe("run (CLI)", () => {
     [["bogus", "--worktree", "/w"]],
     [["supervise", "--worktree", "/w"]],
     [["wait", "--worktree", "/w", "--max-sec", "x"]],
+    [["wait", "--worktree", "/w", "--timeout", "30"]],
+    [["start", "--worktree", "/w", "--max-sec", "5"]],
+    [["supervise", "--worktree", "/w", "--generation", "g", "--config", "x"]],
+    [["wait", "--worktree", ""]],
+    [["wait", "--worktree", "   "]],
+    [["wait", "--worktree", "/w", "--max-sec", ""]],
+    [["wait", "--worktree", "/w", "--worktree", "/x"]],
+    [["wait", "--worktree", "/w", "--__proto__", "x"]],
   ])("exits 2 on usage error %j", async (argv) => {
     expect(await run(argv as string[], () => {})).toBe(2);
   });
 });
 
 describe("run (CLI) against a real worktree", () => {
+  it("accepts every production call shape", async () => {
+    const wt = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-bg-"));
+    try {
+      expect(await run(["start", "--worktree", wt], () => {})).toBe(0);
+      expect(
+        await run(["wait", "--worktree", wt, "--max-sec", "0"], () => {}),
+      ).toBe(0);
+
+      const tmp = path.join(wt, ".flow-tmp");
+      fs.mkdirSync(tmp, { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp, "review-scope.json"),
+        JSON.stringify({ head_sha: "abc", scope: "full" }),
+      );
+      fs.writeFileSync(path.join(tmp, "diff.txt"), "");
+      const cfg = path.join(wt, "cfg.json");
+      fs.writeFileSync(cfg, JSON.stringify({ review: { gemini: true } }));
+      const runs: string[][] = [];
+      startHelpers(
+        { worktree: wt, config: cfg },
+        {
+          io: realStateIO(),
+          nowMs: () => 1_000_000,
+          readCooldown: () => ({ live: false }),
+          run: (argv) => {
+            runs.push(argv);
+            return { exitCode: 0, stdout: "4242\n" };
+          },
+          pidStartEpoch: () => 1,
+          isAlive: () => false,
+          killPid: () => {},
+          sleepMs: () => {},
+          mintGeneration: () => "gen-prod",
+        },
+      );
+      const spawned = runs[0]!;
+      const supervise = spawned.slice(spawned.indexOf("flow-review-bg") + 1);
+      expect(supervise[0]).toBe("supervise");
+      // Drop the run record so the real supervise verb refuses rather than
+      // launching helpers.
+      fs.rmSync(bgPaths(wt).state);
+      expect(await run(supervise, () => {})).toBe(0);
+    } finally {
+      fs.rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
   it("start with gemini off then wait reports both disabled skips", async () => {
     const wt = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-bg-"));
     try {

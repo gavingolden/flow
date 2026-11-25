@@ -109,6 +109,15 @@ export function bgPaths(worktree: string) {
   };
 }
 
+// A run's result files, cleared by exact name when a pass is superseded.
+export function bgRunOutputs(worktree: string): string[] {
+  const p = bgPaths(worktree);
+  return [p.lensEnvelope, p.intentEnvelope, p.lensOut, p.intentOut];
+}
+
+export const MISSING_ENVELOPE_REASON =
+  "helper-exited-without-envelope" as const;
+
 // The helper paths a run always uses, rebuilt from the worktree layout so a
 // state file written by an agent cannot redirect them elsewhere on disk.
 export function helperPaths(
@@ -287,5 +296,5 @@ export function resolveGeminiSkip(
   }
   const h = state.helpers[helper];
   if (h.status === "running") return skip("gemini-not-awaited", "ran-unusable");
-  return skip(h.skipReason ?? h.outcome ?? "gemini-not-awaited", h.skipClass);
+  return skip(h.skipReason ?? MISSING_ENVELOPE_REASON, h.skipClass);
 }

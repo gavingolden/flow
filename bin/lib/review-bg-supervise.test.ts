@@ -261,6 +261,17 @@ describe("runSupervise signals and ownership", () => {
     }
   });
 
+  it("SIGTERM signals only the helper that has not exited", async () => {
+    const t = setup(stateFor("g"));
+    const run = runSupervise({ worktree: WT, generation: "g" }, t.deps);
+    const [lens, guess] = t.children;
+    guess!.exit();
+    t.signals.get("SIGTERM")!();
+    await run;
+    expect(t.kills).toContainEqual([lens!.pid, "SIGTERM"]);
+    expect(t.kills.filter(([pid]) => pid === guess!.pid)).toEqual([]);
+  });
+
   it("a superseded generation never overwrites the newer state", async () => {
     const t = setup(stateFor("g", { guess: "skipped" }), {
       [P.snapshot]: "diff",
@@ -272,6 +283,17 @@ describe("runSupervise signals and ownership", () => {
     const s = read(t.files);
     expect(s.generation).toBe("newer");
     expect(s.helpers["gemini-lens"].status).toBe("running");
+    expect(t.files.get(P.snapshot)).toBe("diff");
+    expect(t.kills).toContainEqual([t.children[0]!.pid, "SIGTERM"]);
+  });
+
+  it("stops its children and writes nothing when its state file was cleared", async () => {
+    const t = setup(stateFor("g", { guess: "skipped" }), {
+      [P.snapshot]: "diff",
+    });
+    t.hooks.push(() => void t.files.delete(P.state));
+    await runSupervise({ worktree: WT, generation: "g" }, t.deps);
+    expect(t.files.has(P.state)).toBe(false);
     expect(t.files.get(P.snapshot)).toBe("diff");
     expect(t.kills).toContainEqual([t.children[0]!.pid, "SIGTERM"]);
   });

@@ -19,6 +19,8 @@ import {
   BG_HELPERS,
   helperPaths,
   isTrustedConfigPath,
+  MISSING_ENVELOPE_REASON,
+  ownsState,
   readReviewBgState,
   realStateIO,
   writeEnvelopeIfOwner,
@@ -174,7 +176,9 @@ export async function runSupervise(
 
   const killAll = (sig: NodeJS.Signals): void => {
     for (const t of tracked.values()) {
-      if (t.child.pid !== undefined) deps.killGroup(t.child.pid, sig);
+      if (!t.exited && t.child.pid !== undefined) {
+        deps.killGroup(t.child.pid, sig);
+      }
     }
   };
 
@@ -235,6 +239,10 @@ export async function runSupervise(
       Math.max(...running.map((h) => initial.helpers[h].giveUpAtSec ?? 0)) +
       HARD_CAP_MARGIN_SEC;
     while (!stopped && !lost && resolved.size < running.length) {
+      if (!ownsState(worktree, generation, io)) {
+        lost = true;
+        break;
+      }
       const now = deps.nowSec();
       for (const helper of running) {
         if (resolved.has(helper) || stopped || lost) continue;
@@ -247,11 +255,7 @@ export async function runSupervise(
           if (isCompleteEnvelope(io.readFile(h.envelope))) {
             commit(helper, "complete");
           } else {
-            commit(
-              helper,
-              "helper-exited-without-envelope",
-              "helper-exited-without-envelope",
-            );
+            commit(helper, MISSING_ENVELOPE_REASON, MISSING_ENVELOPE_REASON);
           }
         } else if (h.giveUpAtSec !== null && now >= h.giveUpAtSec) {
           await giveUp(helper);
@@ -283,11 +287,7 @@ export async function runSupervise(
     }
     for (const helper of running) {
       if (!resolved.has(helper)) {
-        commit(
-          helper,
-          "helper-exited-without-envelope",
-          "helper-exited-without-envelope",
-        );
+        commit(helper, MISSING_ENVELOPE_REASON, MISSING_ENVELOPE_REASON);
       }
     }
     trigger();
