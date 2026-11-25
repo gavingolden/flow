@@ -6,6 +6,7 @@
  * node:child_process only — Bun.spawn is undefined under vitest.
  */
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { defaultReadConfigFile, type ReadConfigFile } from "./models-config";
@@ -175,7 +176,23 @@ export function runInstallDefault(
   });
 }
 
+function shellListed(browsersJsonPath: string): boolean {
+  const json = JSON.parse(readFileSync(browsersJsonPath, "utf8"));
+  return (json?.browsers ?? []).some(
+    (b: { name?: string }) => b?.name === "chromium-headless-shell",
+  );
+}
+
 function listsHeadlessShellDefault(modulePath: string): boolean {
+  try {
+    // Node's own resolution from the module finds playwright-core in any layout.
+    const pkg = createRequire(modulePath).resolve(
+      "playwright-core/package.json",
+    );
+    return shellListed(path.join(path.dirname(pkg), "browsers.json"));
+  } catch {
+    // fall through to a directory walk
+  }
   let dir = path.dirname(modulePath);
   for (let i = 0; i < 6; i++) {
     for (const rel of [
@@ -183,10 +200,7 @@ function listsHeadlessShellDefault(modulePath: string): boolean {
       "node_modules/playwright-core/browsers.json",
     ]) {
       try {
-        const json = JSON.parse(readFileSync(path.join(dir, rel), "utf8"));
-        return (json?.browsers ?? []).some(
-          (b: { name?: string }) => b?.name === "chromium-headless-shell",
-        );
+        return shellListed(path.join(dir, rel));
       } catch {
         // not here; keep walking up
       }

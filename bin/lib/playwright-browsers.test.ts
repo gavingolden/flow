@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -6,6 +12,7 @@ import {
   ensurePinnedBrowser,
   formatEnsureLine,
   INSTALL_TIMEOUT_MS,
+  defaultEnsureDeps,
   pinnedBuildInstalled,
   runInstallDefault,
   readPlaywrightInstallEnabled,
@@ -360,5 +367,41 @@ setInterval(() => {}, 1000);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("listsHeadlessShell default (hoisted layout)", () => {
+  const withTree = (browsers: unknown[], fn: (mod: string) => void) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "pw-hoist-"));
+    try {
+      const core = path.join(dir, "node_modules", "playwright-core");
+      const mod = path.join(dir, "node_modules", "@playwright", "test");
+      mkdirSync(core, { recursive: true });
+      mkdirSync(mod, { recursive: true });
+      writeFileSync(
+        path.join(core, "package.json"),
+        JSON.stringify({ name: "playwright-core", version: "1.60.0" }),
+      );
+      writeFileSync(
+        path.join(core, "browsers.json"),
+        JSON.stringify({ browsers }),
+      );
+      writeFileSync(path.join(mod, "index.js"), "");
+      fn(path.join(mod, "index.js"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("finds a hoisted playwright-core that lists the shell", () => {
+    withTree([{ name: "chromium-headless-shell" }], (mod) =>
+      expect(defaultEnsureDeps.listsHeadlessShell(mod)).toBe(true),
+    );
+  });
+
+  it("is false when the pinned list has no shell", () => {
+    withTree([{ name: "chromium" }], (mod) =>
+      expect(defaultEnsureDeps.listsHeadlessShell(mod)).toBe(false),
+    );
   });
 });
