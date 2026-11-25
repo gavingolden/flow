@@ -54,6 +54,8 @@ What each column shows, left to right:
 | phase  | flow's short phase name, such as `impl`, `ci`, `plan?`, `gated`, `merged`                                                                                     |
 | title  | The window title: the short name flow gives each pipeline after triage (rename with `Ctrl-b ,`)                                                               |
 
+A window that was already open when you upgraded has no `!` until flow republishes it (on `flow feature resume`, at its next phase change, or when a feature window ends a turn at `gated`, `needs-human`, `merged` or `cancelled`); until then `flow ls`'s `CLOSE?` column shows which pipelines need you.
+
 Windows that flow did not create keep their stock `Ctrl-b w` row, so the recipe is safe in a session that mixes flow and everything else. Sessions show their window count.
 
 To keep the stock `Ctrl-b w` and use this view on `W` instead, paste the line into `~/.tmux.conf` with `bind-key W`, and drop the `source-file` line. You will need to re-copy it when flow updates.

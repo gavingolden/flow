@@ -210,6 +210,16 @@ describe("attnTier", () => {
     expect(attnTier(st("merged", [item(1, { droppedAt: "t" })]))).toBe("close");
   });
 
+  it("tiers a recorded epic-design window by its own phase rule", () => {
+    const k = { kind: "epic-design" } as const;
+    expect(attnTier(st("cancelled", [], k))).toBe("close");
+    expect(attnTier(st("epic-approved", [], k))).toBe("close");
+    expect(attnTier(st("needs-human", [], k))).toBe("needs");
+    expect(attnTier(st("epic-design-pending-review", [], k))).toBe("needs");
+    expect(attnTier(st("epic-plan-review-pending", [], k))).toBe("run");
+    expect(attnTier(st("epic-designing", [], k))).toBe("run");
+  });
+
   it("derives epic-design from the paused phase at needs-human", () => {
     const phaseLog = [
       { phase: "epic-designing", at: "t" },

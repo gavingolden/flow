@@ -759,8 +759,14 @@ phase badge. Match it with `==`, for example `#{==:#{@flow-attn},needs}`:
 | epic run, manager, epic manage | Empty: untiered.                                                                                              |
 
 An empty or unset value means the window is untiered, or has not been
-republished since you upgraded (any reply in that window, or `flow feature
-resume`, republishes it). `@flow-attn` only labels windows, so you can colour
+republished since you upgraded. A window is republished when it is created or
+resumed (`flow feature resume`, `flow epic create --resume`, whether the window
+is re-created or respawned), at each phase change, and when a feature window
+ends a turn at `gated`, `needs-human`, `merged` or `cancelled`. A pre-upgrade
+window parked at another waiting phase (for example `plan-pending-review`) or
+an epic design window stays empty until its next phase change or resume; until
+then `flow ls`'s `CLOSE?` column is the source of truth for which windows need
+you. `@flow-attn` only labels windows, so you can colour
 or flag them; it never changes their order, and a new phase cannot land
 untiered. For example:
 

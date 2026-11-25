@@ -619,7 +619,7 @@ describe("runNew --resume", () => {
     expect(tmuxMock.setWindowEpic).not.toHaveBeenCalled();
   });
 
-  it("republishes badges from the recorded state when resume creates a fresh window, not on respawn", () => {
+  it("republishes badges from the recorded state on resume, for both a fresh window and a respawn", () => {
     writeState(
       {
         slug: "badge-resume",
@@ -643,7 +643,11 @@ describe("runNew --resume", () => {
     tmuxMock.isPaneAlive.mockReturnValue(false);
     expect(runNew("badge-resume", { resume: true, stateDir })).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalled();
-    expect(tmuxMock.publishStateBadges).not.toHaveBeenCalled();
+    expect(tmuxMock.publishStateBadges).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges.mock.calls[0]?.[0]).toMatchObject({
+      slug: "badge-resume",
+      phase: "gated",
+    });
   });
 
   it("recreates the window when tmux has lost it (no window, dead pane)", () => {

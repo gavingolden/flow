@@ -1495,6 +1495,9 @@ describe("close-verdict hook line", () => {
       "#1 serialize parallel suites (recorded just now)",
     );
     expect(h.published).toHaveLength(1);
+    expect(h.published[0]?.untracked?.map((i) => i.title)).toEqual([
+      "serialize parallel suites",
+    ]);
   });
 
   it("harvests bullets only, never count lines or sentinels", async () => {

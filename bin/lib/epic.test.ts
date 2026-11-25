@@ -1466,7 +1466,7 @@ describe("runEpicCli create --resume", () => {
     expect(code).toBe(0);
   });
 
-  it("republishes badges from the recorded state on a fresh-window resume, not on respawn", () => {
+  it("republishes badges from the recorded state on resume, for both a fresh window and a respawn", () => {
     seedEpicState("badge-epic");
     tmuxMock.windowExists.mockReturnValue(false);
     expect(runEpicCli(["create", "--resume", "badge-epic"], { stateDir })).toBe(
@@ -1485,7 +1485,10 @@ describe("runEpicCli create --resume", () => {
       0,
     );
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalled();
-    expect(tmuxMock.publishStateBadges).not.toHaveBeenCalled();
+    expect(tmuxMock.publishStateBadges).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges.mock.calls[0]?.[0]).toMatchObject({
+      slug: "badge-epic",
+    });
   });
 
   it("recreates the window when tmux has lost it (no window, dead pane)", () => {

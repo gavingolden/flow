@@ -852,8 +852,8 @@ export type SetWindowPhaseDeps = {
 
 /**
  * Publishes the full badge set (`@flow-phase`, `@flow-phase-short`,
- * `@flow-pr`, `@flow-epic`, and — pane-scoped — `@flow-kind`) from a single
- * post-write `PipelineState`, resolving the target window once by
+ * `@flow-pr`, `@flow-epic`, `@flow-attn`, and — pane-scoped — `@flow-kind`)
+ * from a single post-write `PipelineState`, resolving the target window once by
  * `@flow-slug` (resolve-then-soft-fail: a missing window is a soft failure,
  * never a throw). Returns early with `{ ok: false }` and issues NO
  * set-option calls when `state.launcher === "plain"` (that EXACT equality,
