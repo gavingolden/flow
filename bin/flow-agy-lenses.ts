@@ -935,11 +935,13 @@ export function realDeps(config?: string): Deps {
   };
 }
 
+// run() re-parses and owns the usage error (exit 2).
+export function cliDeps(argv: string[]): Deps {
+  const parsed = parseArgs(argv);
+  return realDeps("error" in parsed ? undefined : parsed.config);
+}
+
 if (import.meta.main) {
   const argv = process.argv.slice(2);
-  const parsed = parseArgs(argv);
-  // run() re-parses and owns the usage error (exit 2).
-  run(argv, realDeps("error" in parsed ? undefined : parsed.config)).then(
-    (code) => process.exit(code),
-  );
+  run(argv, cliDeps(argv)).then((code) => process.exit(code));
 }

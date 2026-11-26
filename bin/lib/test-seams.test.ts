@@ -107,6 +107,20 @@ describe("expectUnstubbedSeam", () => {
     );
   });
 
+  it("rethrows an unrelated error thrown after a swallowed seam hit", async () => {
+    const d = strictDeps(real(), { dir: "/x" });
+    await expect(
+      expectUnstubbedSeam(() => {
+        try {
+          d.read("a");
+        } catch {
+          // swallowed
+        }
+        throw new Error("later boom");
+      }, "read"),
+    ).rejects.toThrow(/later boom/);
+  });
+
   it("fails on an unrelated error and keeps other seams' hits", async () => {
     const d = strictDeps(real(), { dir: "/x" });
     expect(() => d.write("w")).toThrow();

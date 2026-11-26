@@ -96,6 +96,7 @@ export async function expectUnstubbedSeam(
   const own = hits().filter((h) => h.startsWith(prefix));
   g[HITS_KEY] = hits().filter((h) => !h.startsWith(prefix));
   const threw = thrown instanceof UnstubbedSeamError && thrown.seam === seam;
+  if (thrown !== undefined && !threw) throw thrown;
   if (!threw && own.length === 0) {
     throw new Error(
       `expected an unstubbed "${seam}" seam hit, got ${thrown === undefined ? "no error and no recorded hit" : String(thrown)}`,

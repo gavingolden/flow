@@ -2,7 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseArgs, realDeps, run, type Deps } from "./flow-agy-lenses";
+import {
+  cliDeps,
+  parseArgs,
+  realDeps,
+  run,
+  type Deps,
+} from "./flow-agy-lenses";
 import type { FanoutResult, ManifestEntry } from "./flow-delegate-fanout";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 import { pickSeams, strictDeps } from "./lib/test-seams";
@@ -115,7 +121,6 @@ const FIXED_MS = 1_700_000_000_000;
 const deps = (over: Partial<Deps> = {}): Deps =>
   strictDeps(realDeps(), {
     ...pickSeams(realDeps(), [
-      "readFile",
       "writeFile",
       "removeFile",
       "removeDir",
@@ -1315,6 +1320,16 @@ describe("realDeps", () => {
     expect(realDeps(path.join(worktree, "absent.json")).readConfig()).toBe(
       undefined,
     );
+  });
+
+  it("cliDeps wires --config from argv into readConfig", () => {
+    const file = path.join(worktree, "cli-cfg.json");
+    fs.writeFileSync(file, JSON.stringify({ review: { gemini: true } }));
+    expect(
+      cliDeps([...argv("bug-detection"), "--config", file]).readConfig(),
+    ).toEqual({
+      review: { gemini: true },
+    });
   });
 
   it("requires a complete deps argument at compile time", () => {
