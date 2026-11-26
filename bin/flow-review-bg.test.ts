@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { run, runWait, type WaitDeps } from "./flow-review-bg";
 import { startHelpers } from "./lib/review-bg";
 import {
@@ -285,7 +285,28 @@ describe("run (CLI) against a real worktree", () => {
   it("accepts every production call shape", async () => {
     const wt = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-bg-"));
     try {
-      expect(await run(["start", "--worktree", wt], () => {})).toBe(0);
+      // Pins the disabled gate (sandboxed HOME has no flow config, and diff.txt
+      // is absent), so the real start can never spawn a watchdog.
+      const emptyBin = path.join(wt, "empty-bin");
+      fs.mkdirSync(emptyBin);
+      const out: string[] = [];
+      vi.stubEnv("PATH", emptyBin);
+      try {
+        expect(await run(["start", "--worktree", wt], (l) => out.push(l))).toBe(
+          0,
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+      const started = JSON.parse(out.join("\n"));
+      expect(started.helpers["gemini-lens"].skipReason).toBe(
+        "gemini-lens-disabled",
+      );
+      expect(started.helpers["gemini-intent-guess"].skipReason).toBe(
+        "gemini-intent-guess-disabled",
+      );
+      expect(started.watchdog).toBeNull();
+      expect(fs.existsSync(bgPaths(wt).superviseLog)).toBe(false);
       expect(
         await run(["wait", "--worktree", wt, "--max-sec", "0"], () => {}),
       ).toBe(0);
@@ -341,9 +362,16 @@ describe("run (CLI) against a real worktree", () => {
       fs.writeFileSync(path.join(tmp, "diff.txt"), "");
       const cfg = path.join(wt, "cfg.json");
       fs.writeFileSync(cfg, "{}");
-      expect(
-        await run(["start", "--worktree", wt, "--config", cfg], () => {}),
-      ).toBe(0);
+      const emptyBin = path.join(wt, "empty-bin");
+      fs.mkdirSync(emptyBin);
+      vi.stubEnv("PATH", emptyBin);
+      try {
+        expect(
+          await run(["start", "--worktree", wt, "--config", cfg], () => {}),
+        ).toBe(0);
+      } finally {
+        vi.unstubAllEnvs();
+      }
       const out: string[] = [];
       expect(await run(["wait", "--worktree", wt], (l) => out.push(l))).toBe(0);
       const report = JSON.parse(out[0]!);

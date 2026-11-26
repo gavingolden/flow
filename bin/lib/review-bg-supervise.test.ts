@@ -291,6 +291,68 @@ describe("runSupervise signals and ownership", () => {
     expect(t.kills).toContainEqual([t.children[0]!.pid, "SIGTERM"]);
   });
 
+  it("a superseded watchdog's end-of-run cleanup deletes nothing of the newer run", async () => {
+    const t = setup(stateFor("g", { guess: "skipped" }));
+    t.hooks.push(() => {
+      t.files.set(P.lensEnvelope, '{"ran":true}\n');
+      t.children.forEach((c) => c.exit());
+    });
+    const newer = stateFor("newer");
+    for (const h of Object.values(newer.helpers)) {
+      h.status = "done";
+      h.outcome = "complete";
+    }
+    const origRename = t.io.rename;
+    let superseded = false;
+    t.io.rename = (a, b) => {
+      origRename(a, b);
+      if (b !== P.state || superseded) return;
+      const written = readReviewBgState(t.files.get(P.state)!);
+      if (
+        written?.generation !== "g" ||
+        written.helpers["gemini-lens"].outcome !== "complete"
+      ) {
+        return;
+      }
+      superseded = true;
+      writeReviewBgState(WT, newer, t.io);
+      t.files.set(P.snapshot, "new-diff");
+      t.files.set(P.lensLog, "new-lens-log");
+      t.files.set(P.superviseLog, "new-supervise-log");
+    };
+    const removedDirs: string[] = [];
+    t.io.removeDir = (d) => void removedDirs.push(d);
+
+    await runSupervise({ worktree: WT, generation: "g" }, t.deps);
+
+    expect(superseded).toBe(true);
+    expect(t.files.get(P.snapshot)).toBe("new-diff");
+    expect(t.files.get(P.lensLog)).toBe("new-lens-log");
+    expect(t.files.get(P.superviseLog)).toBe("new-supervise-log");
+    expect(removedDirs).toEqual([]);
+    expect(read(t.files).generation).toBe("newer");
+  });
+
+  it("a watchdog superseded during the give-up grace keeps the newer run's output", async () => {
+    const t = setup(stateFor("g", { guess: "skipped" }), {
+      [P.lensOut]: "partial",
+    });
+    let superseded = false;
+    t.hooks.push(() => {
+      if (superseded || t.kills.length === 0) return;
+      superseded = true;
+      writeReviewBgState(WT, stateFor("newer"), t.io);
+      t.files.set(P.lensOut, "new-out");
+    });
+
+    await runSupervise({ worktree: WT, generation: "g" }, t.deps);
+
+    expect(superseded).toBe(true);
+    expect(t.files.get(P.lensOut)).toBe("new-out");
+    expect(t.files.has(P.lensEnvelope)).toBe(false);
+    expect(read(t.files).generation).toBe("newer");
+  });
+
   it("stops its children and writes nothing when its state file was cleared", async () => {
     const t = setup(stateFor("g", { guess: "skipped" }), {
       [P.snapshot]: "diff",
