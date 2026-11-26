@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   startHelpers,
@@ -10,6 +13,7 @@ import {
   giveUpSec,
   ownsState,
   readReviewBgState,
+  realStateIO,
   resolveGeminiSkip,
   writeIfOwner,
   type ReviewBgState,
@@ -151,6 +155,74 @@ describe("startHelpers launch", () => {
     start(d);
     expect(d.files.get(P.superviseLog)).toBe("boom");
     expect(d.removed).not.toContain(P.superviseLog);
+  });
+
+  const failedSpawnOnRealFs = (
+    runBody: (wt: string) => void,
+    check: (wt: string, s: ReviewBgState) => void,
+  ) => {
+    const wt = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-bg-spawn-"));
+    try {
+      const tmp = path.join(wt, ".flow-tmp");
+      fs.mkdirSync(tmp, { recursive: true });
+      fs.writeFileSync(path.join(tmp, "diff.txt"), "diff");
+      fs.writeFileSync(
+        path.join(tmp, "review-scope.json"),
+        JSON.stringify({ head_sha: "abc", scope: "full" }),
+      );
+      const cfg = path.join(wt, "cfg.json");
+      fs.writeFileSync(cfg, ENABLED);
+      const s = startHelpers(
+        { worktree: wt, config: cfg },
+        {
+          io: realStateIO(),
+          nowMs: () => 1_000_000,
+          readCooldown: () => ({ live: false }),
+          run: () => {
+            runBody(wt);
+            return { exitCode: 1, stdout: "" };
+          },
+          pidStartEpoch: () => 77,
+          isAlive: () => false,
+          killPid: () => {},
+          sleepMs: () => {},
+          mintGeneration: () => "gen-real",
+        },
+      );
+      check(wt, s);
+    } finally {
+      fs.rmSync(wt, { recursive: true, force: true });
+    }
+  };
+
+  it("keeps a non-empty supervise log and its scratch dir on the real filesystem when the spawn fails", () => {
+    failedSpawnOnRealFs(
+      (wt) => fs.writeFileSync(bgPaths(wt).superviseLog, "boom"),
+      (wt, s) => {
+        const bp = bgPaths(wt);
+        expect(fs.readFileSync(bp.superviseLog, "utf8")).toBe("boom");
+        expect(fs.existsSync(bp.scratch)).toBe(true);
+        expect(fs.existsSync(bp.snapshot)).toBe(false);
+        for (const h of Object.values(s.helpers)) {
+          expect(h).toMatchObject({
+            status: "skipped",
+            skipReason: "spawn-failed",
+          });
+        }
+      },
+    );
+  });
+
+  it("removes an empty scratch dir on the real filesystem when the spawn fails", () => {
+    failedSpawnOnRealFs(
+      () => {},
+      (wt, s) => {
+        expect(fs.existsSync(bgPaths(wt).scratch)).toBe(false);
+        for (const h of Object.values(s.helpers)) {
+          expect(h.skipReason).toBe("spawn-failed");
+        }
+      },
+    );
   });
 });
 
