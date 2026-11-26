@@ -50,7 +50,7 @@ class Node {
     const height = this.spec.height ?? 0;
     const width = this.spec.width ?? W;
     const left = this.spec.left ?? 0;
-    return {
+    const rect: Record<string, number> = {
       top,
       bottom: top + height,
       height,
@@ -58,6 +58,13 @@ class Node {
       left,
       right: left + width,
     };
+    return new Proxy(rect, {
+      get(target, key) {
+        if (typeof key === "string" && !(key in target))
+          throw new Error(`rect fake has no "${key}"; add it to the fixture`);
+        return target[key as string];
+      },
+    });
   }
   contains(o: Node | null): boolean {
     for (let n: Node | null = o; n; n = n.parentElement)
