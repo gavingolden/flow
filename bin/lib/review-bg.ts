@@ -20,6 +20,7 @@ import {
   bgPaths,
   bgRunOutputs,
   giveUpSec,
+  isTrustedConfigPath,
   readReviewBgState,
   readScope,
   realStateIO,
@@ -231,6 +232,10 @@ export function startHelpers(
     return state;
   };
 
+  if (!isTrustedConfigPath(worktree, configPath)) {
+    return skipBoth("gemini-config-untrusted");
+  }
+
   let rawConfig = "";
   try {
     rawConfig = io.readFile(configPath) ?? "";
@@ -253,6 +258,12 @@ export function startHelpers(
   try {
     io.mkdirp(p.scratch);
     io.copyFile(p.diff, p.snapshot);
+  } catch {
+    io.removeFile(p.snapshot);
+    rmdirIfEmpty(p.scratch, io.removeDir);
+    return skipBoth("gemini-diff-unreadable");
+  }
+  try {
     // Frozen copy of the exact text the gate and give-up times read, so an
     // edit to the source file mid-run cannot split the watchdog from the helpers.
     io.writeFile(p.configSnapshot, rawConfig);
@@ -260,7 +271,7 @@ export function startHelpers(
     io.removeFile(p.snapshot);
     io.removeFile(p.configSnapshot);
     rmdirIfEmpty(p.scratch, io.removeDir);
-    return skipBoth("gemini-diff-unreadable");
+    return skipBoth("gemini-config-unwritable");
   }
   state.diffSnapshot = p.snapshot;
   state.configPath = p.configSnapshot;
@@ -303,6 +314,7 @@ export function startHelpers(
     io.removeFile(p.snapshot);
     io.removeFile(p.configSnapshot);
     state.diffSnapshot = null;
+    state.configPath = configPath;
     rmdirIfEmpty(p.scratch, io.removeDir);
     writeReviewBgState(worktree, state, io);
     return state;

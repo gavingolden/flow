@@ -33,7 +33,7 @@ const P = bgPaths(WT);
 const ENABLED = JSON.stringify({ review: { gemini: true } });
 const SCOPE = (scope = "full", head = "abc") =>
   JSON.stringify({ head_sha: head, scope, started_at: "2026-01-01T00:00:00Z" });
-const CONFIG = "/cfg.json";
+const CONFIG = "/wt/cfg.json";
 
 function makeIO(seed: Record<string, string> = {}) {
   const files = new Map<string, string>(Object.entries(seed));
@@ -404,6 +404,51 @@ describe("startHelpers diff snapshot", () => {
   });
 });
 
+describe("startHelpers config snapshot", () => {
+  it("skips both as gemini-config-unwritable and removes the diff snapshot when the config write fails", () => {
+    const d = makeDeps({});
+    const io = d.deps.io;
+    d.deps.io = {
+      ...io,
+      writeFile: (p, c) => {
+        if (p === P.configSnapshot) throw new Error("ENOSPC");
+        io.writeFile(p, c);
+      },
+    };
+    const s = start(d);
+    expect(d.runs).toHaveLength(0);
+    expect(s.diffSnapshot).toBeNull();
+    expect(d.files.has(P.snapshot)).toBe(false);
+    expect(d.removed).toContain(P.snapshot);
+    expect(d.removed).toContain(P.configSnapshot);
+    expect(d.removedDirs).toContain(P.scratch);
+    for (const h of Object.values(s.helpers)) {
+      expect(h).toMatchObject({
+        status: "skipped",
+        skipReason: "gemini-config-unwritable",
+        skipClass: "environment",
+      });
+    }
+  });
+
+  it("refuses a --config outside the worktree: skips both as gemini-config-untrusted, no snapshot, no spawn", () => {
+    const outside = "/elsewhere/cfg.json";
+    const d = makeDeps({ [outside]: ENABLED });
+    const s = startHelpers({ worktree: WT, config: outside }, d.deps);
+    expect(d.runs).toHaveLength(0);
+    expect(s.diffSnapshot).toBeNull();
+    expect(d.files.has(P.snapshot)).toBe(false);
+    expect(d.files.has(P.configSnapshot)).toBe(false);
+    for (const h of Object.values(s.helpers)) {
+      expect(h).toMatchObject({
+        status: "skipped",
+        skipReason: "gemini-config-untrusted",
+        skipClass: "environment",
+      });
+    }
+  });
+});
+
 describe("resolveGeminiSkip", () => {
   const unawaited = (): ReviewBgState =>
     startHelpers({ worktree: WT, config: CONFIG }, makeDeps({}).deps);
@@ -620,12 +665,12 @@ describe("config snapshot", () => {
     const first = makeDeps({});
     start(first);
     const d = makeDeps(
-      { [P.state]: first.files.get(P.state)!, "/other.json": ENABLED },
+      { [P.state]: first.files.get(P.state)!, "/wt/other.json": ENABLED },
       { isAlive: () => true, pidStartEpoch: () => 77 },
     );
-    const s = startHelpers({ worktree: WT, config: "/other.json" }, d.deps);
+    const s = startHelpers({ worktree: WT, config: "/wt/other.json" }, d.deps);
     expect(s.generation).toBe("gen-new");
-    expect(s.configSource).toBe("/other.json");
+    expect(s.configSource).toBe("/wt/other.json");
     expect(d.kills.length).toBeGreaterThan(0);
     expect(d.runs).toHaveLength(1);
   });

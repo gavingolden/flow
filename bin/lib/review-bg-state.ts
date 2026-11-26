@@ -135,7 +135,9 @@ export function helperPaths(
     : { envelope: p.intentEnvelope, out: p.intentOut, log: p.intentLog };
 }
 
-// `--config` is the default flow config or a file under the worktree.
+// `--config` is the default flow config or a file under the worktree. Checked
+// at start (`startHelpers`) on the caller's path, and again at supervise on the
+// state's configPath (the in-worktree snapshot).
 export function isTrustedConfigPath(
   worktree: string,
   configPath: string,

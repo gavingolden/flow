@@ -717,11 +717,14 @@ down to `20m`, warning once per surface on stderr, so a typo like `"200m"`
 cannot hold a pipeline for hours. An override between `9m` and `20m` now
 passes through as written; before, it was clamped to `9m`.
 
-`flow-review-bg start --config <file>` makes the watchdog and both helpers read
+`flow-review-bg start` (with `--config <file>`, or the default
+`~/.flow/config.json` without it) makes the watchdog and both helpers read
 `review.gemini`, `delegate.timeouts.*` and `delegate.models.*` from one frozen
-copy of that file taken at start, so a shorter limit there — or an edit to the
+copy of that file taken on every start, so a shorter limit there — or an edit to the
 file mid-run — can never let the watchdog give up on a check still inside its
-own limit.
+own limit. A `--config` outside the worktree (other than the default
+`~/.flow/config.json`) is refused at start: both checks skip as
+`gemini-config-untrusted`.
 
 ## tmux status-bar bindings (opt-in)
 

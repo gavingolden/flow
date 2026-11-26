@@ -55,6 +55,8 @@ export const ENVIRONMENT_SKIP_REASONS: ReadonlySet<string> = new Set([
   "gemini-intent-guess-disabled",
   "plan-review-disabled",
   "gemini-diff-unreadable",
+  "gemini-config-unwritable",
+  "gemini-config-untrusted",
   "gemini-intent-guess-diff-unreadable",
   "gemini-prep-failed",
   "gemini-intent-guess-prep-failed",
