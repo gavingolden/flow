@@ -302,18 +302,20 @@ export async function runSupervise(
   if (lost) {
     // A newer generation owns the state: stop our children, touch nothing.
     killAll("SIGTERM");
-  } else if (!stopped && ownsState(worktree, generation, io)) {
+  } else if (!stopped) {
     const done = readReviewBgState(io.readFile(paths.state));
-    io.removeFile(snapshotPath);
-    for (const helper of running) {
-      if (done?.helpers[helper].outcome === "complete") {
-        io.removeFile(helperPaths(worktree, helper).log);
+    if (done !== null && done.generation === generation) {
+      io.removeFile(snapshotPath);
+      for (const helper of running) {
+        if (done.helpers[helper].outcome === "complete") {
+          io.removeFile(helperPaths(worktree, helper).log);
+        }
       }
+      if (running.every((h) => done.helpers[h].outcome === "complete")) {
+        io.removeFile(paths.superviseLog);
+      }
+      rmdirIfEmpty(paths.scratch, io.removeDir);
     }
-    if (running.every((h) => done?.helpers[h].outcome === "complete")) {
-      io.removeFile(paths.superviseLog);
-    }
-    rmdirIfEmpty(paths.scratch, io.removeDir);
   }
   return readReviewBgState(io.readFile(paths.state)) ?? initial;
 }

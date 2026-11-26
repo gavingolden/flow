@@ -361,9 +361,16 @@ describe("run (CLI) against a real worktree", () => {
       fs.writeFileSync(path.join(tmp, "diff.txt"), "");
       const cfg = path.join(wt, "cfg.json");
       fs.writeFileSync(cfg, "{}");
-      expect(
-        await run(["start", "--worktree", wt, "--config", cfg], () => {}),
-      ).toBe(0);
+      const emptyBin = path.join(wt, "empty-bin");
+      fs.mkdirSync(emptyBin);
+      vi.stubEnv("PATH", emptyBin);
+      try {
+        expect(
+          await run(["start", "--worktree", wt, "--config", cfg], () => {}),
+        ).toBe(0);
+      } finally {
+        vi.unstubAllEnvs();
+      }
       const out: string[] = [];
       expect(await run(["wait", "--worktree", wt], (l) => out.push(l))).toBe(0);
       const report = JSON.parse(out[0]!);
