@@ -219,7 +219,7 @@ export async function runSupervise(
       return;
     }
     const reason = TIMEOUT_OUTCOME[helper];
-    io.removeFile(h.out);
+    if (ownsState(worktree, generation, io)) io.removeFile(h.out);
     if (
       !writeEnvelopeIfOwner(
         worktree,
@@ -304,16 +304,18 @@ export async function runSupervise(
     killAll("SIGTERM");
   } else if (!stopped) {
     const done = readReviewBgState(io.readFile(paths.state));
-    io.removeFile(snapshotPath);
-    for (const helper of running) {
-      if (done?.helpers[helper].outcome === "complete") {
-        io.removeFile(helperPaths(worktree, helper).log);
+    if (done !== null && done.generation === generation) {
+      io.removeFile(snapshotPath);
+      for (const helper of running) {
+        if (done.helpers[helper].outcome === "complete") {
+          io.removeFile(helperPaths(worktree, helper).log);
+        }
       }
+      if (running.every((h) => done.helpers[h].outcome === "complete")) {
+        io.removeFile(paths.superviseLog);
+      }
+      rmdirIfEmpty(paths.scratch, io.removeDir);
     }
-    if (running.every((h) => done?.helpers[h].outcome === "complete")) {
-      io.removeFile(paths.superviseLog);
-    }
-    rmdirIfEmpty(paths.scratch, io.removeDir);
   }
   return readReviewBgState(io.readFile(paths.state)) ?? initial;
 }
