@@ -41,6 +41,7 @@ function stateFor(
     scope: "full",
     review_started_at: null,
     configPath: "/wt/cfg.json",
+    configSource: "/wt/cfg.json",
     watchdog: null,
     diffSnapshot: P.snapshot,
     helpers: {
@@ -185,7 +186,9 @@ describe("runSupervise outcomes", () => {
   });
 
   it("records complete for a newline-terminated parseable envelope", async () => {
-    const t = setup(stateFor("g", { guess: "skipped" }));
+    const t = setup(stateFor("g", { guess: "skipped" }), {
+      [P.configSnapshot]: "{}",
+    });
     t.hooks.push(() => {
       t.files.set(P.lensEnvelope, '{"ran":true}\n');
       t.children.forEach((c) => c.exit());
@@ -193,6 +196,7 @@ describe("runSupervise outcomes", () => {
     const s = await runSupervise({ worktree: WT, generation: "g" }, t.deps);
     expect(s.helpers["gemini-lens"].outcome).toBe("complete");
     expect(t.files.has(P.snapshot)).toBe(false);
+    expect(t.files.has(P.configSnapshot)).toBe(false);
   });
 
   it("treats a half-written envelope (no newline) as not complete", async () => {
@@ -313,6 +317,7 @@ describe("runSupervise signals and ownership", () => {
       superseded = true;
       writeReviewBgState(WT, newer, t.io);
       t.files.set(P.snapshot, "new-diff");
+      t.files.set(P.configSnapshot, "new-config");
       t.files.set(P.lensLog, "new-lens-log");
       t.files.set(P.superviseLog, "new-supervise-log");
     };
@@ -323,6 +328,7 @@ describe("runSupervise signals and ownership", () => {
 
     expect(superseded).toBe(true);
     expect(t.files.get(P.snapshot)).toBe("new-diff");
+    expect(t.files.get(P.configSnapshot)).toBe("new-config");
     expect(t.files.get(P.lensLog)).toBe("new-lens-log");
     expect(t.files.get(P.superviseLog)).toBe("new-supervise-log");
     expect(removedDirs).toEqual([]);

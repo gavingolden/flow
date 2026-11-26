@@ -7,10 +7,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { helperScratchPaths } from "./lib/helper-scratch";
+import { expectUnstubbedSeam, pickSeams, strictDeps } from "./lib/test-seams";
 import {
   DELEGATE_TIMEOUT_CEILING,
   DELEGATE_TIMEOUT_DEFAULTS,
@@ -20,6 +21,7 @@ import {
   buildPrompt,
   isGeminiIntentGuessEnabled,
   parseArgs,
+  realDeps,
   run,
   validateIntentGuess,
   type DelegateEnvelope,
@@ -198,6 +200,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     delegate: string[][];
     writes: Array<{ path: string; contents: string }>;
     removed: string[];
+    removedDirs: string[];
     out: string[];
   };
   files: Map<string, string>;
@@ -207,6 +210,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     delegate: [] as string[][],
     writes: [] as Array<{ path: string; contents: string }>,
     removed: [] as string[],
+    removedDirs: [] as string[],
     out: [] as string[],
   };
   const base: Deps = {
@@ -230,6 +234,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
       calls.removed.push(p);
       files.delete(p);
     },
+    removeDir: (d) => void calls.removedDirs.push(d),
     mkdirp: () => {},
     writeOut: (line) => calls.out.push(line),
     fileExists: (p) => files.has(p),
@@ -238,7 +243,12 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     "/d.txt",
     "diff --git a/src/foo.ts b/src/foo.ts\n+++ b/src/foo.ts\n",
   );
-  return Object.assign(base, overrides, { calls, files });
+  // calls/files attach AFTER strictDeps: it rebuilds the object from
+  // realDeps()'s keys and would drop them.
+  return Object.assign(strictDeps(realDeps(), { ...base, ...overrides }), {
+    calls,
+    files,
+  });
 }
 
 const BASE_ARGV = [
@@ -874,13 +884,17 @@ describe("run — intent-guess cleanup leaves scratch files intact", () => {
       writeFileSync(diff, "diff --git a/src/foo.ts b/src/foo.ts");
       const out = path.join(tmp, "intent-guess-gemini.json");
       const lines: string[] = [];
-      const deps: Partial<Deps> = {
+      // Deliberate real-fs opt-in, confined to the mkdtemp worktree.
+      const deps = strictDeps(realDeps(), {
+        ...pickSeams(realDeps(), [
+          "readFile",
+          "writeFile",
+          "removeFile",
+          "removeDir",
+          "mkdirp",
+          "fileExists",
+        ]),
         readConfig: () => ENABLED,
-        readFile: (p) => readFileSync(p, "utf8"),
-        writeFile: (p, c) => writeFileSync(p, c),
-        removeFile: (p) => void rmSync(p, { force: true }),
-        mkdirp: (d) => void mkdirSync(d, { recursive: true }),
-        fileExists: (p) => existsSync(p),
         writeOut: (l) => lines.push(l),
         runDelegate: (argv) => {
           for (const name of readdirSync(tmp)) {
@@ -899,7 +913,7 @@ describe("run — intent-guess cleanup leaves scratch files intact", () => {
           writeFileSync(raw, JSON.stringify(VALID_GUESS));
           return { ran: true, artifactPath: raw };
         },
-      };
+      });
       expect(
         run(["--worktree", wt, "--diff-file", diff, "--out", out], deps),
       ).toBe(0);
@@ -930,15 +944,21 @@ describe("run — denial relabel is limited to plausible-denial reasons", () => 
 });
 
 describe("run — scratch folders are removed once empty", () => {
-  const realDeps = (over: Partial<Deps>): Partial<Deps> => ({
-    readConfig: () => ENABLED,
-    readFile: (p) => readFileSync(p, "utf8"),
-    writeFile: (p, c) => writeFileSync(p, c),
-    removeFile: (p) => void rmSync(p, { force: true }),
-    mkdirp: (d) => void mkdirSync(d, { recursive: true }),
-    fileExists: (p) => existsSync(p),
-    ...over,
-  });
+  // Deliberate real-fs opt-in: these specs run against a per-test mkdtemp
+  // worktree; every other seam stays fail-closed unless the test fakes it.
+  const fsDeps = (over: Partial<Deps>): Deps =>
+    strictDeps(realDeps(), {
+      ...pickSeams(realDeps(), [
+        "readFile",
+        "writeFile",
+        "removeFile",
+        "removeDir",
+        "mkdirp",
+        "fileExists",
+      ]),
+      readConfig: () => ENABLED,
+      ...over,
+    });
   const setup = () => {
     const wt = mkdtempSync(path.join(tmpdir(), "gemini-intent-guess-scratch-"));
     const tmp = path.join(wt, ".flow-tmp");
@@ -953,7 +973,7 @@ describe("run — scratch folders are removed once empty", () => {
   it("removes the per-output and per-helper folders after a success", () => {
     const { wt, tmp, out, argv } = setup();
     try {
-      const deps = realDeps({
+      const deps = fsDeps({
         writeOut: () => {},
         runDelegate: (a) => {
           const raw = a[a.indexOf("--out") + 1]!;
@@ -977,7 +997,7 @@ describe("run — scratch folders are removed once empty", () => {
   it("removes the folders after a skip that retains no artifact", () => {
     const { wt, tmp, out, argv } = setup();
     try {
-      const deps = realDeps({
+      const deps = fsDeps({
         writeOut: () => {},
         runDelegate: () => ({ ran: false, skipReason: "agy-not-found" }),
       });
@@ -997,7 +1017,7 @@ describe("run — scratch folders are removed once empty", () => {
     const { wt, out, argv } = setup();
     try {
       const lines: string[] = [];
-      const deps = realDeps({
+      const deps = fsDeps({
         writeOut: (l) => lines.push(l),
         runDelegate: (a) => {
           const raw = a[a.indexOf("--out") + 1]!;
@@ -1021,5 +1041,74 @@ describe("run — scratch folders are removed once empty", () => {
     const deps = makeDeps({ removeDir: (d) => void removed.push(d) });
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(removed).toEqual([SCRATCH.dir, path.dirname(SCRATCH.dir)]);
+  });
+});
+
+describe("run — strict dependency set", () => {
+  it("fails closed when removeDir is not stubbed", async () => {
+    const files = new Map<string, string>([["/d.txt", "diff"]]);
+    const deps = strictDeps(realDeps(), {
+      readConfig: () => ENABLED,
+      runDelegate: (argv) => {
+        const raw = argv[argv.indexOf("--out") + 1]!;
+        files.set(raw, JSON.stringify(VALID_GUESS));
+        return { ran: true, artifactPath: raw } as DelegateEnvelope;
+      },
+      readFile: (p) => {
+        if (!files.has(p)) throw new Error(`ENOENT: ${p}`);
+        return files.get(p)!;
+      },
+      writeFile: (p, c) => void files.set(p, c),
+      removeFile: (p) => void files.delete(p),
+      mkdirp: () => {},
+      writeOut: () => {},
+      fileExists: (p) => files.has(p),
+    });
+    await expectUnstubbedSeam(() => run(BASE_ARGV, deps), "removeDir");
+  });
+
+  it("requires a complete deps argument at compile time", () => {
+    // Never called: these only prove the signatures reject missing/partial deps.
+    const compileOnly = () => {
+      // @ts-expect-error deps is required
+      run(BASE_ARGV);
+      // @ts-expect-error a partial deps object is rejected
+      run(BASE_ARGV, { writeOut: () => {} });
+    };
+    expect(typeof compileOnly).toBe("function");
+  });
+});
+
+describe("run — --config governs timeout and model", () => {
+  it("honours --config for timeout and model over ~/.flow/config.json", () => {
+    const homeConfig = path.join(homedir(), ".flow", "config.json");
+    mkdirSync(path.dirname(homeConfig), { recursive: true });
+    writeFileSync(
+      homeConfig,
+      JSON.stringify({
+        delegate: {
+          timeouts: { intentGuess: "7m" },
+          models: { intentGuess: "Home Model" },
+        },
+      }),
+    );
+    try {
+      const deps = makeDeps({
+        readConfig: () =>
+          JSON.stringify({
+            review: { gemini: true },
+            delegate: {
+              timeouts: { intentGuess: "3m" },
+              models: { intentGuess: "Config Model" },
+            },
+          }),
+      });
+      run(BASE_ARGV, deps);
+      const argv = deps.calls.delegate[0]!;
+      expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");
+      expect(argv[argv.indexOf("--model") + 1]).toBe("Config Model");
+    } finally {
+      rmSync(homeConfig, { force: true });
+    }
   });
 });

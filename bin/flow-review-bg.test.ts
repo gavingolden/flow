@@ -33,6 +33,7 @@ function state(over: Partial<ReviewBgState> = {}): ReviewBgState {
     scope: "full",
     review_started_at: null,
     configPath: "/cfg",
+    configSource: "/cfg",
     watchdog: { pid: 55, pidStartEpoch: 9 },
     diffSnapshot: null,
     helpers: {

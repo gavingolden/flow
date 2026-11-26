@@ -46,7 +46,11 @@ export type ReviewBgState = {
   head_sha: string | null;
   scope: string | null;
   review_started_at: string | null;
+  // The config file the helpers read: a frozen copy taken at start on the
+  // launch path, so the watchdog and both helpers see the same limits.
   configPath: string;
+  // The caller's `--config` path the run was started from ("" on skip-only runs).
+  configSource: string;
   // Stamped by the first `wait` snapshot (epoch sec); absent = nobody waited.
   awaitedAt?: number;
   watchdog: { pid: number; pidStartEpoch: number | null } | null;
@@ -96,6 +100,7 @@ export function bgPaths(worktree: string) {
     scratch,
     state: join(tmp, REVIEW_BG_STATE_FILE),
     snapshot: join(scratch, "diff.txt"),
+    configSnapshot: join(scratch, "config.json"),
     superviseLog: join(scratch, "supervise.log"),
     reviewScope: join(tmp, "review-scope.json"),
     intentResolution: join(tmp, "intent-resolution.json"),
@@ -130,7 +135,9 @@ export function helperPaths(
     : { envelope: p.intentEnvelope, out: p.intentOut, log: p.intentLog };
 }
 
-// `--config` is the default flow config or a file under the worktree.
+// `--config` is the default flow config or a file under the worktree. Checked
+// at start (`startHelpers`) on the caller's path, and again at supervise on the
+// state's configPath (the in-worktree snapshot).
 export function isTrustedConfigPath(
   worktree: string,
   configPath: string,

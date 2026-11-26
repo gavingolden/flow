@@ -2,9 +2,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseArgs, run, type Deps } from "./flow-agy-lenses";
+import {
+  cliDeps,
+  parseArgs,
+  realDeps,
+  run,
+  type Deps,
+} from "./flow-agy-lenses";
 import type { FanoutResult, ManifestEntry } from "./flow-delegate-fanout";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import { pickSeams, strictDeps } from "./lib/test-seams";
 
 const SKILL_DIR = path.join(
   import.meta.dirname,
@@ -105,35 +112,50 @@ const fanoutWith =
     };
   };
 
-const deps = (over: Partial<Deps> = {}): Partial<Deps> => ({
-  readConfig: cfg(),
-  resolveSlug: () => null,
-  loadState: () => null,
-  ghPrView: () => ({
-    number: 7,
-    title: "Add the thing",
-    body: "PR body",
-    baseRefName: "main",
-  }),
-  gitShow: () => null,
-  readCooldown: () => ({ live: false }),
-  armCooldown: (classes, resetMs) => {
-    armed.push(classes);
-    armedReset.push(resetMs);
-  },
-  writeOut: (l) => void lines.push(l),
-  readFile: (p) => {
-    reads.push(p);
-    try {
-      return fs.readFileSync(p, "utf8");
-    } catch {
-      return null;
-    }
-  },
-  runFanout: fanoutWith(() => ({ raw: GOOD })),
-  refusalCacheDir: cacheDir,
-  ...over,
-});
+const FIXED_MS = 1_700_000_000_000;
+
+// The suite is a tmpdir integration suite (a real per-test mkdtemp worktree),
+// so the filesystem seams are a deliberate, visible real-fs opt-in. Every
+// other seam (gh, git, fan-out, cooldown, slug, state, clock) fails closed
+// unless a test fakes it.
+const deps = (over: Partial<Deps> = {}): Deps =>
+  strictDeps(realDeps(), {
+    ...pickSeams(realDeps(), [
+      "writeFile",
+      "removeFile",
+      "removeDir",
+      "mkdirp",
+      "listDir",
+    ]),
+    now: () => FIXED_MS,
+    readConfig: cfg(),
+    resolveSlug: () => null,
+    loadState: () => null,
+    ghPrView: () => ({
+      number: 7,
+      title: "Add the thing",
+      body: "PR body",
+      baseRefName: "main",
+    }),
+    gitShow: () => null,
+    readCooldown: () => ({ live: false }),
+    armCooldown: (classes, resetMs) => {
+      armed.push(classes);
+      armedReset.push(resetMs);
+    },
+    writeOut: (l) => void lines.push(l),
+    readFile: (p) => {
+      reads.push(p);
+      try {
+        return fs.readFileSync(p, "utf8");
+      } catch {
+        return null;
+      }
+    },
+    runFanout: fanoutWith(() => ({ raw: GOOD })),
+    refusalCacheDir: cacheDir,
+    ...over,
+  });
 
 const argv = (lenses: string, extra: string[] = []) => [
   "--worktree",
@@ -1287,5 +1309,35 @@ describe("result record", () => {
     expect(rec.delegated.map((d: { lens: string }) => d.lens)).toEqual([
       "bug-detection",
     ]);
+  });
+});
+
+describe("realDeps", () => {
+  it("reads --config from the given file and yields undefined when it is missing", () => {
+    const file = path.join(worktree, "cfg.json");
+    fs.writeFileSync(file, JSON.stringify({ review: { gemini: true } }));
+    expect(realDeps(file).readConfig()).toEqual({ review: { gemini: true } });
+    expect(realDeps(path.join(worktree, "absent.json")).readConfig()).toBe(
+      undefined,
+    );
+  });
+
+  it("cliDeps wires --config from argv into readConfig", () => {
+    const file = path.join(worktree, "cli-cfg.json");
+    fs.writeFileSync(file, JSON.stringify({ review: { gemini: true } }));
+    expect(
+      cliDeps([...argv("bug-detection"), "--config", file]).readConfig(),
+    ).toEqual({
+      review: { gemini: true },
+    });
+  });
+
+  it("requires a complete deps argument at compile time", () => {
+    // Never called: this only proves the signature rejects missing deps.
+    const compileOnly = () => {
+      // @ts-expect-error deps is required
+      return run(argv("pattern-consistency"));
+    };
+    expect(typeof compileOnly).toBe("function");
   });
 });

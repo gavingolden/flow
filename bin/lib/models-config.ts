@@ -57,6 +57,22 @@ export function cachedConfigRead(base: ReadConfigFile): ReadConfigFile {
   };
 }
 
+/**
+ * A reader over config text the caller already read: parses once at
+ * construction and returns the parsed value on every call, or `undefined` for
+ * empty or malformed text. Lets a helper's gate, time limit and model all
+ * come from one read of one file.
+ */
+export function readerFromConfigText(text: string): ReadConfigFile {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  return () => parsed;
+}
+
 function asModelAlias(v: unknown): ModelAlias | undefined {
   return typeof v === "string" &&
     (MODEL_ALIASES as readonly string[]).includes(v)

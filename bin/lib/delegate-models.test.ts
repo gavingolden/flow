@@ -133,13 +133,13 @@ describe("resolveDelegateModel", () => {
       new URL("../flow-gemini-intent-guess.ts", import.meta.url),
       "utf8",
     );
-    expect(intentGuessSrc).toContain('resolveDelegateModel("intentGuess")');
+    expect(intentGuessSrc).toContain('resolveDelegateModel("intentGuess"');
 
     const lensSrc = fs.readFileSync(
       new URL("../flow-gemini-lens.ts", import.meta.url),
       "utf8",
     );
-    expect(lensSrc).toContain('resolveDelegateModel("reviewLens")');
+    expect(lensSrc).toContain('resolveDelegateModel("reviewLens"');
 
     const agyLensesSrc = fs.readFileSync(
       new URL("../flow-agy-lenses.ts", import.meta.url),

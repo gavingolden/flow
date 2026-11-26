@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { isGeminiLensEnabled } from "../flow-gemini-lens";
 import { readCooldown as realReadCooldown } from "./agy-cooldown";
 import { godurToSec, resolveDelegateTimeout } from "./delegate-timeouts";
+import { readerFromConfigText } from "./models-config";
 import type { SkipClass } from "./delegate-skip-class";
 import { rmdirIfEmpty } from "./helper-scratch";
 import { pidStartEpoch as realPidStartEpoch } from "./liveness";
@@ -19,6 +20,7 @@ import {
   bgPaths,
   bgRunOutputs,
   giveUpSec,
+  isTrustedConfigPath,
   readReviewBgState,
   readScope,
   realStateIO,
@@ -122,6 +124,7 @@ function newState(
     scope: scope.scope,
     review_started_at: scope.started,
     configPath,
+    configSource: configPath,
     watchdog: null,
     diffSnapshot: null,
     helpers: {
@@ -162,6 +165,7 @@ export function stopAndClearRun(
   clearStale(worktree, deps.io);
   deps.io.removeFile(p.state);
   deps.io.removeFile(p.snapshot);
+  deps.io.removeFile(p.configSnapshot);
   rmdirIfEmpty(p.scratch, deps.io.removeDir);
 }
 
@@ -199,7 +203,9 @@ export function startHelpers(
   const existing = readReviewBgState(io.readFile(p.state));
   if (existing !== null) {
     const sameKey =
-      existing.head_sha === scope.head_sha && existing.scope === scope.scope;
+      existing.head_sha === scope.head_sha &&
+      existing.scope === scope.scope &&
+      existing.configSource === configPath;
     const live =
       watchdogLiveness(existing.watchdog, deps.isAlive, deps.pidStartEpoch) ===
       "alive";
@@ -226,6 +232,10 @@ export function startHelpers(
     return state;
   };
 
+  if (!isTrustedConfigPath(worktree, configPath)) {
+    return skipBoth("gemini-config-untrusted");
+  }
+
   let rawConfig = "";
   try {
     rawConfig = io.readFile(configPath) ?? "";
@@ -249,17 +259,23 @@ export function startHelpers(
     io.mkdirp(p.scratch);
     io.copyFile(p.diff, p.snapshot);
   } catch {
+    io.removeFile(p.snapshot);
     rmdirIfEmpty(p.scratch, io.removeDir);
     return skipBoth("gemini-diff-unreadable");
   }
-  state.diffSnapshot = p.snapshot;
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(rawConfig);
+    // Frozen copy of the exact text the gate and give-up times read, so an
+    // edit to the source file mid-run cannot split the watchdog from the helpers.
+    io.writeFile(p.configSnapshot, rawConfig);
   } catch {
-    parsed = undefined;
+    io.removeFile(p.snapshot);
+    io.removeFile(p.configSnapshot);
+    rmdirIfEmpty(p.scratch, io.removeDir);
+    return skipBoth("gemini-config-unwritable");
   }
-  const reader = () => parsed;
+  state.diffSnapshot = p.snapshot;
+  state.configPath = p.configSnapshot;
+  const reader = readerFromConfigText(rawConfig);
   const timeoutOf = (surface: "reviewLens" | "intentGuess") =>
     godurToSec(resolveDelegateTimeout(surface, reader));
   lens.giveUpAtSec =
@@ -296,7 +312,9 @@ export function startHelpers(
     failed(lens);
     failed(guess);
     io.removeFile(p.snapshot);
+    io.removeFile(p.configSnapshot);
     state.diffSnapshot = null;
+    state.configPath = configPath;
     rmdirIfEmpty(p.scratch, io.removeDir);
     writeReviewBgState(worktree, state, io);
     return state;

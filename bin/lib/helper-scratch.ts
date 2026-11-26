@@ -1,4 +1,3 @@
-import { rmdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 export type HelperScratchPaths = {
@@ -26,10 +25,7 @@ export function helperScratchPaths(
   };
 }
 
-export function rmdirIfEmpty(
-  dir: string,
-  rmdir: (dir: string) => void = rmdirSync,
-): void {
+export function rmdirIfEmpty(dir: string, rmdir: (dir: string) => void): void {
   try {
     rmdir(dir);
   } catch (err) {
@@ -40,7 +36,7 @@ export function rmdirIfEmpty(
 
 export function removeEmptyScratchDirs(
   paths: HelperScratchPaths,
-  rmdir?: (dir: string) => void,
+  rmdir: (dir: string) => void,
 ): void {
   rmdirIfEmpty(paths.dir, rmdir);
   rmdirIfEmpty(dirname(paths.dir), rmdir);

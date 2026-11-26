@@ -11,15 +11,16 @@
  * path is a graceful skip, never a hard-fail of the review.
  *
  * Flow:
- *  1. GATE — read `~/.flow/config.json` tolerantly; enable ONLY on strict
+ *  1. GATE — read `--config` (default `~/.flow/config.json`) tolerantly; enable ONLY on strict
  *     boolean `review.gemini === true` (isGeminiIntentGuessEnabled).
  *     Disabled → `{ran:false,skipReason:"gemini-intent-guess-disabled"}`.
  *  2. Build the embedded blind-guess prompt (diff + file list ONLY, no PR
  *     title/body/plan/commit messages — mirrors the diff-only agent's
  *     blindness contract) and delegate ONE bounded agy call via
  *     `flow-delegate` (model `delegate.models.intentGuess`, `--timeout` from
- *     `resolveDelegateTimeout("intentGuess")` — `delegate.timeouts.intentGuess`,
- *     default 10m, 20m sanity bound).
+ *     `resolveDelegateTimeout("intentGuess", configReader)` —
+ *     `delegate.timeouts.intentGuess` from that same `--config`, default 10m,
+ *     20m sanity bound).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
  *     code): `ran:false` → propagate the skipReason, finalize nothing.
  *  4. `ran:true` → read the raw agy artifact and decode it through the
@@ -41,11 +42,13 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { resolveDelegateModel } from "./lib/delegate-models";
+import { readerFromConfigText } from "./lib/models-config";
 import {
   clampDelegateTimeout,
   resolveDelegateTimeout,
@@ -300,7 +303,7 @@ export type Deps = {
   readFile: (path: string) => string;
   writeFile: (path: string, contents: string) => void;
   removeFile: (path: string) => void;
-  removeDir?: (dir: string) => void;
+  removeDir: (dir: string) => void;
   mkdirp: (dir: string) => void;
   writeOut: (line: string) => void;
   fileExists: (path: string) => boolean;
@@ -311,8 +314,7 @@ function emit(deps: Deps, envelope: Record<string, unknown>): number {
   return 0;
 }
 
-export function run(argv: string[], depsOverride?: Partial<Deps>): number {
-  const deps = resolveDeps(depsOverride);
+export function run(argv: string[], deps: Deps): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-gemini-intent-guess: ${parsed.error}`);
@@ -407,6 +409,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("gemini-intent-guess-prep-failed");
   }
 
+  // One read feeds the gate, the model and the time limit, so a --config
+  // file governs all three (default ~/.flow/config.json).
+  const configReader = readerFromConfigText(rawConfig);
   const envelope = deps.runDelegate([
     "--output-format",
     "json",
@@ -417,7 +422,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     "--model",
     // Non-null: only the "scout" and "claudeLenses" surfaces default to null;
     // intentGuess's default and every well-typed override are strings.
-    resolveDelegateModel("intentGuess") as string,
+    resolveDelegateModel("intentGuess", configReader) as string,
     "--add-dir",
     parsed.worktree,
     "--out",
@@ -427,7 +432,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     "--timeout",
     parsed.timeout
       ? clampDelegateTimeout(parsed.timeout, "intentGuess")
-      : resolveDelegateTimeout("intentGuess"),
+      : resolveDelegateTimeout("intentGuess", configReader),
   ]);
 
   // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0
@@ -517,31 +522,29 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   });
 }
 
-function resolveDeps(o?: Partial<Deps>): Deps {
+export function realDeps(): Deps {
   return {
-    readConfig: o?.readConfig ?? ((p) => readFileSync(p, "utf8")),
-    runDelegate:
-      o?.runDelegate ??
-      ((argv) => {
-        const r = Bun.spawnSync(["flow-delegate", ...argv], {
-          stdin: "ignore",
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-        const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
-        const stderr = r.stderr ? new TextDecoder().decode(r.stderr) : "";
-        return parseDelegateRun(stdout, r.exitCode, stderr);
-      }),
-    readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
-    writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),
-    removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
-    removeDir: o?.removeDir,
-    mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
-    writeOut: o?.writeOut ?? ((line) => console.log(line)),
-    fileExists: o?.fileExists ?? ((p) => existsSync(p)),
+    readConfig: (p) => readFileSync(p, "utf8"),
+    runDelegate: (argv) => {
+      const r = Bun.spawnSync(["flow-delegate", ...argv], {
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
+      const stderr = r.stderr ? new TextDecoder().decode(r.stderr) : "";
+      return parseDelegateRun(stdout, r.exitCode, stderr);
+    },
+    readFile: (p) => readFileSync(p, "utf8"),
+    writeFile: (p, c) => writeFileSync(p, c),
+    removeFile: (p) => void rmSync(p, { force: true }),
+    removeDir: (d) => rmdirSync(d),
+    mkdirp: (d) => void mkdirSync(d, { recursive: true }),
+    writeOut: (line) => console.log(line),
+    fileExists: (p) => existsSync(p),
   };
 }
 
 if (import.meta.main) {
-  process.exit(run(process.argv.slice(2)));
+  process.exit(run(process.argv.slice(2), realDeps()));
 }
