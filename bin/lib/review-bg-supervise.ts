@@ -219,7 +219,7 @@ export async function runSupervise(
       return;
     }
     const reason = TIMEOUT_OUTCOME[helper];
-    io.removeFile(h.out);
+    if (ownsState(worktree, generation, io)) io.removeFile(h.out);
     if (
       !writeEnvelopeIfOwner(
         worktree,
@@ -302,7 +302,7 @@ export async function runSupervise(
   if (lost) {
     // A newer generation owns the state: stop our children, touch nothing.
     killAll("SIGTERM");
-  } else if (!stopped) {
+  } else if (!stopped && ownsState(worktree, generation, io)) {
     const done = readReviewBgState(io.readFile(paths.state));
     io.removeFile(snapshotPath);
     for (const helper of running) {
