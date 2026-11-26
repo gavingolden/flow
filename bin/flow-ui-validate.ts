@@ -204,7 +204,9 @@ Options:
   --probe-script          Print the page-quality probe the driver hands to
                           evaluate_script, then exit 0.
   --sections-script       Print the script that opens collapsed <details> and
-                          lists the page's sections, then exit 0.
+                          lists the page's sections, and installs
+                          window.__flowScrollSection for section shots, then
+                          exit 0.
   --sections-restore-script
                           Print the script that re-closes what
                           --sections-script opened, then exit 0.

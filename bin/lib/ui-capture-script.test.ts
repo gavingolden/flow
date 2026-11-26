@@ -74,9 +74,16 @@ exports.chromium = {
         reload: async () => { log({ type: "reload", ctx: id }); await load(current); },
         waitForTimeout: async (ms) => { log({ type: "wait", ms }); },
         waitForLoadState: async () => {},
-        evaluate: async () => ({
-          hasDarkScheme: false, darkSchemeClass: null, sections: [], innerHeight: 800,
-        }),
+        evaluate: async (fn) => {
+          const src = typeof fn === "string" ? fn : "";
+          if (src.includes('"sel":')) {
+            return { found: true, offsetPx: 0, clippedByBottom: process.env.FAKE_CLIPPED === "1" };
+          }
+          const sections = src.includes("kids.slice") && process.env.FAKE_SECTION === "1"
+            ? [{ section: "A", selector: "#a", height: 600 }]
+            : [];
+          return { hasDarkScheme: false, darkSchemeClass: null, sections, innerHeight: 800 };
+        },
         locator: () => ({
           first: () => ({ fill: async () => {}, click: async () => { current = "${BASE}/home"; } }),
           ariaSnapshot: async () => "- document",
@@ -122,6 +129,8 @@ type RunOpts = {
   traffic?: Traffic;
   backoff?: { minMs: number; maxMs: number; budgetMs: number };
   bodySettleMs?: number;
+  /** Serve one 600px section; its start scroll reports this clippedByBottom. */
+  section?: { clippedByBottom: boolean };
 };
 
 function runScript(targets: Target[], withLogin: boolean, opts: RunOpts = {}) {
@@ -154,6 +163,12 @@ function runScript(targets: Target[], withLogin: boolean, opts: RunOpts = {}) {
       FLOW_CAPTURE_CONFIG: cfgPath,
       FAKE_LOG: logPath,
       FAKE_RESPONSES: trafficPath,
+      ...(opts.section
+        ? {
+            FAKE_SECTION: "1",
+            FAKE_CLIPPED: opts.section.clippedByBottom ? "1" : "0",
+          }
+        : {}),
       ...(withLogin
         ? { FLOW_CAPTURE_USER: "user", FLOW_CAPTURE_PASS: "pass" }
         : {}),
@@ -230,6 +245,35 @@ describe("generated capture script session choice", () => {
     expect(
       events.filter((e) => e.type === "goto" && e.url === LOGIN),
     ).toHaveLength(1);
+  });
+});
+
+describe("generated capture script section shots", () => {
+  const partsOf = (clippedByBottom: boolean) => {
+    const { out } = runScript([t("/a")], false, {
+      section: { clippedByBottom },
+    });
+    expect(out.ok).toBe(true);
+    const byViewport = new Map<string, string[]>();
+    for (const s of out.shots as { viewport: string; part: string }[]) {
+      byViewport.set(s.viewport, [
+        ...(byViewport.get(s.viewport) ?? []),
+        s.part,
+      ]);
+    }
+    return [...byViewport.values()];
+  };
+
+  it("takes start and end shots of a non-tall section still clipped by bottom chrome", () => {
+    const parts = partsOf(true);
+    expect(parts.length).toBeGreaterThan(0);
+    expect(parts.every((p) => p.join() === "start,end")).toBe(true);
+  });
+
+  it("takes one whole shot of a non-tall section the bar does not clip", () => {
+    const parts = partsOf(false);
+    expect(parts.length).toBeGreaterThan(0);
+    expect(parts.every((p) => p.join() === "whole")).toBe(true);
   });
 });
 

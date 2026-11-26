@@ -8,6 +8,7 @@
  */
 import { captureNetworkScript } from "./ui-capture-network";
 import { heuristicsProbeScript, sectionsScript } from "./ui-heuristics";
+import { sectionScrollSource } from "./ui-section-scroll";
 import type { CaptureViewport } from "./ui-capture-plan";
 import type { FailedRequest } from "./ui-driver-schema";
 
@@ -78,10 +79,8 @@ const applyDark = (cls) => {
   const m = /\[([\w-]+)=["']?([\w-]+)["']?\]/.exec(cls);
   if (m) el.setAttribute(m[1], m[2]);
 };
-const scrollTo = (a) => {
-  const el = document.querySelector(a.sel);
-  if (el) el.scrollIntoView({ block: a.block, behavior: "instant" });
-};
+const scrollSection = (page, sel, part) =>
+  page.evaluate("(" + SCROLL_SRC + ")(" + JSON.stringify({ sel, part }) + ")");
 
 async function login(browser) {
   const ctx = await browser.newContext();
@@ -175,10 +174,15 @@ async function captureTarget(browser, storageState, t) {
     const plan = sections.length > 0 ? sections : [{ section: "Page top", selector: null, height: 0 }];
     for (let i = 0; i < plan.length; i++) {
       const s = plan[i];
-      const parts = s.height > 1.5 * found.innerHeight ? [["start", "start"], ["end", "end"]] : [["whole", "start"]];
-      for (const [part, block] of parts) {
+      let parts = [["start", "start"], ["end", "end"]];
+      if (s.height <= 1.5 * found.innerHeight) {
+        // A bottom bar can leave a short section's end clipped; then it earns an end shot too.
+        const probed = s.selector ? await scrollSection(page, s.selector, "start") : null;
+        parts = probed && probed.clippedByBottom ? parts : [["whole", "start"]];
+      }
+      for (const [part, edge] of parts) {
         if (share <= 0) { out.omittedSections++; break; }
-        if (s.selector) await page.evaluate(scrollTo, { sel: s.selector, block });
+        if (s.selector) await scrollSection(page, s.selector, edge);
         const file = cfg.names[[t.route, i + 1, vp.name, part].join("|")];
         fs.mkdirSync(path.dirname(file), { recursive: true });
         await page.screenshot({ path: file, fullPage: false });
@@ -221,6 +225,7 @@ export function buildCaptureScript(modulePath: string): string {
     '"use strict";',
     `const { chromium } = require(${JSON.stringify(modulePath)});`,
     `const PROBE_SRC = ${JSON.stringify(heuristicsProbeScript())};`,
+    `const SCROLL_SRC = ${JSON.stringify(sectionScrollSource())};`,
     `const SECTIONS_SRC = ${JSON.stringify(sectionsScript())};`,
     `const NETWORK_SRC = ${JSON.stringify(captureNetworkScript())};`,
     BODY,

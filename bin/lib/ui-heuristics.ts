@@ -5,6 +5,7 @@
  * numbers into hard defects and advisory smells in plain TypeScript — the
  * driver never judges, and this module never touches a DOM or the MCP.
  */
+import { sectionScrollSource } from "./ui-section-scroll";
 
 export type HeuristicsCapture = {
   innerWidth: number;
@@ -302,7 +303,11 @@ export function heuristicsProbeScript(): string {
 }
 
 export function sectionsScript(): string {
-  return SECTIONS_SOURCE;
+  return SECTIONS_SOURCE.replace(
+    "() => {",
+    () =>
+      "() => {\n  window.__flowScrollSection = " + sectionScrollSource() + ";",
+  );
 }
 
 export function sectionsRestoreScript(): string {

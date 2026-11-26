@@ -120,6 +120,20 @@ describe("section scripts", () => {
     );
   });
 
+  it("sections script installs the chrome-aware scroll function", () => {
+    const dom = {
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      body: { children: [] },
+    };
+    runWithDom(dom, () => {
+      evalScript(sectionsScript())();
+      const w = (globalThis as unknown as { window: Record<string, unknown> })
+        .window;
+      expect(typeof w.__flowScrollSection).toBe("function");
+    });
+  });
+
   it("scopes unnamed sections to the root, escapes ids and never emits an empty label", () => {
     const kids = [
       section("div", "", "  \n  "),
