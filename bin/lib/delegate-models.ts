@@ -114,8 +114,8 @@ export function extractDelegateModelsKey(raw: unknown, key: string): unknown {
 /**
  * Resolves the agy variant string (or `null` for the scout / claudeLenses
  * surfaces, meaning "use the Claude Task agent") for a given delegate
- * surface: `delegate.models.<surface>` from `~/.flow/config.json` when
- * present and well-typed, else the seeded default. Never throws — a missing
+ * surface: `delegate.models.<surface>` from the given config reader
+ * (default `~/.flow/config.json`) when present and well-typed, else the seeded default. Never throws — a missing
  * file, malformed JSON, absent key, or wrong-typed value all collapse to the
  * default (the last case also warns on stderr once).
  */

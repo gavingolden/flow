@@ -93,8 +93,8 @@ function extractDelegateTimeoutsKey(raw: unknown, key: string): unknown {
 
 /**
  * Resolves the `--print-timeout`-shaped godur string for a given delegate
- * surface: `delegate.timeouts.<surface>` from `~/.flow/config.json` when
- * present and a well-formed Go duration, else the seeded default. A
+ * surface: `delegate.timeouts.<surface>` from the given config reader
+ * (default `~/.flow/config.json`) when present and a well-formed Go duration, else the seeded default. A
  * resolved value above `DELEGATE_TIMEOUT_CEILING` is clamped down to it
  * (warn-and-clamp, never warn-and-pass — see module docstring); a value
  * exactly at the ceiling is accepted as-is. Never

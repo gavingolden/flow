@@ -38,6 +38,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -198,7 +199,7 @@ export type Deps = {
   readFile: (path: string) => string | null;
   writeFile: (path: string, contents: string, mode?: number) => void;
   removeFile: (path: string) => void;
-  removeDir?: (dir: string) => void;
+  removeDir: (dir: string) => void;
   mkdirp: (dir: string, mode?: number) => void;
   listDir: (dir: string) => string[];
   // Where a refused lens's prompt and raw output are kept after the scratch
@@ -686,17 +687,13 @@ function isReviewGeminiOn(config: unknown): boolean {
   return (review as Record<string, unknown>).gemini === true;
 }
 
-export async function run(
-  argv: string[],
-  depsOverride?: Partial<Deps>,
-): Promise<number> {
+export async function run(argv: string[], deps: Deps): Promise<number> {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-agy-lenses: ${parsed.error}`);
     console.error(USAGE);
     return 2;
   }
-  const deps = resolveDeps(parsed, depsOverride);
   const helperStartMs = deps.now();
 
   // The safeguards retry runs the named lenses on the Gemini model even when
@@ -890,65 +887,59 @@ async function defaultRunFanout(
   return JSON.parse(captured) as FanoutResult;
 }
 
-function resolveDeps(args: Args, o?: Partial<Deps>): Deps {
+export function realDeps(config?: string): Deps {
   return {
-    readConfig:
-      o?.readConfig ??
-      (args.config ? fileConfigReader(args.config) : defaultReadConfigFile),
-    resolveSlug: o?.resolveSlug ?? (() => resolveSlugAmbient()),
-    loadState: o?.loadState ?? ((slug) => readState(slug)),
-    readFile:
-      o?.readFile ??
-      ((p) => {
-        try {
-          return readFileSync(p, "utf8");
-        } catch {
-          return null;
-        }
-      }),
-    writeFile:
-      o?.writeFile ??
-      ((p, c, mode) => writeFileSync(p, c, mode === undefined ? {} : { mode })),
-    removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
-    removeDir: o?.removeDir,
-    mkdirp:
-      o?.mkdirp ?? ((d, mode) => void mkdirSync(d, { recursive: true, mode })),
-    listDir: o?.listDir ?? ((d) => readdirSync(d)),
-    refusalCacheDir: o?.refusalCacheDir ?? join(flowCacheDir(), "agy-refusals"),
-    ghPrView:
-      o?.ghPrView ??
-      ((pr, cwd) => {
-        const out = spawnText(
-          [
-            "gh",
-            "pr",
-            "view",
-            String(pr),
-            "--json",
-            "number,title,body,baseRefName",
-          ],
-          cwd,
-        );
-        if (out === null) return null;
-        try {
-          return JSON.parse(out) as PrMeta;
-        } catch {
-          return null;
-        }
-      }),
-    gitShow:
-      o?.gitShow ?? ((spec, cwd) => spawnText(["git", "show", spec], cwd)),
-    runFanout: o?.runFanout ?? defaultRunFanout,
-    readCooldown: o?.readCooldown ?? (() => readCooldown()),
-    armCooldown:
-      o?.armCooldown ??
-      ((classes, resetMs) =>
-        armCooldown(classes, undefined, undefined, resetMs)),
-    writeOut: o?.writeOut ?? ((line) => console.log(line)),
-    now: o?.now ?? (() => Date.now()),
+    readConfig: config ? fileConfigReader(config) : defaultReadConfigFile,
+    resolveSlug: () => resolveSlugAmbient(),
+    loadState: (slug) => readState(slug),
+    readFile: (p) => {
+      try {
+        return readFileSync(p, "utf8");
+      } catch {
+        return null;
+      }
+    },
+    writeFile: (p, c, mode) =>
+      writeFileSync(p, c, mode === undefined ? {} : { mode }),
+    removeFile: (p) => void rmSync(p, { force: true }),
+    removeDir: (d) => rmdirSync(d),
+    mkdirp: (d, mode) => void mkdirSync(d, { recursive: true, mode }),
+    listDir: (d) => readdirSync(d),
+    refusalCacheDir: join(flowCacheDir(), "agy-refusals"),
+    ghPrView: (pr, cwd) => {
+      const out = spawnText(
+        [
+          "gh",
+          "pr",
+          "view",
+          String(pr),
+          "--json",
+          "number,title,body,baseRefName",
+        ],
+        cwd,
+      );
+      if (out === null) return null;
+      try {
+        return JSON.parse(out) as PrMeta;
+      } catch {
+        return null;
+      }
+    },
+    gitShow: (spec, cwd) => spawnText(["git", "show", spec], cwd),
+    runFanout: defaultRunFanout,
+    readCooldown: () => readCooldown(),
+    armCooldown: (classes, resetMs) =>
+      armCooldown(classes, undefined, undefined, resetMs),
+    writeOut: (line) => console.log(line),
+    now: () => Date.now(),
   };
 }
 
 if (import.meta.main) {
-  run(process.argv.slice(2)).then((code) => process.exit(code));
+  const argv = process.argv.slice(2);
+  const parsed = parseArgs(argv);
+  // run() re-parses and owns the usage error (exit 2).
+  run(argv, realDeps("error" in parsed ? undefined : parsed.config)).then(
+    (code) => process.exit(code),
+  );
 }

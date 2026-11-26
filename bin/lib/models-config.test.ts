@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectModelConfigWarnings,
   readDefaultModel,
+  readerFromConfigText,
   readPhaseModel,
   readReviewLensModel,
   REVIEW_LENS_NAMES,
@@ -266,5 +267,18 @@ describe("readDefaultModel — hermeticity (no injected seam)", () => {
       else process.env.HOME = originalHome;
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+describe("readerFromConfigText", () => {
+  it("parses once and returns the same value on every call", () => {
+    const read = readerFromConfigText('{"a":1}');
+    const first = read();
+    expect(first).toEqual({ a: 1 });
+    expect(read()).toBe(first);
+  });
+
+  it.each(["", "   ", "{not json"])("returns undefined for %j", (text) => {
+    expect(readerFromConfigText(text)()).toBeUndefined();
   });
 });

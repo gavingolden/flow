@@ -1,4 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { realDeps as lensRealDeps, run as runLens } from "../flow-gemini-lens";
+import {
+  realDeps as guessRealDeps,
+  run as runGuess,
+} from "../flow-gemini-intent-guess";
+import { godurToSec } from "./delegate-timeouts";
+import { runSupervise } from "./review-bg-supervise";
+import { strictDeps } from "./test-seams";
 import {
   startHelpers,
   stopAndClearRun,
@@ -497,5 +505,138 @@ describe("stopAndClearRun", () => {
     expect(kills).toEqual([4242]);
     expect(alive).toBe(false);
     expect(readReviewBgState(d.files.get(P.state)!)?.watchdog).toBeNull();
+  });
+});
+
+describe("config snapshot", () => {
+  const TIMED = JSON.stringify({
+    review: { gemini: true },
+    delegate: { timeouts: { reviewLens: "3m", intentGuess: "2m" } },
+  });
+
+  it("freezes the source text, points state.configPath at it, and ignores later edits", () => {
+    const d = makeDeps({ [CONFIG]: TIMED });
+    const s = start(d);
+    expect(d.files.get(P.configSnapshot)).toBe(TIMED);
+    expect(s.configPath).toBe(P.configSnapshot);
+    expect(s.configSource).toBe(CONFIG);
+    d.files.set(CONFIG, ENABLED);
+    expect(d.files.get(P.configSnapshot)).toBe(TIMED);
+  });
+
+  it("keeps the caller's path on a skipped run and writes no snapshot", () => {
+    const d = makeDeps({ [CONFIG]: JSON.stringify({}) });
+    const s = start(d);
+    expect(s.configPath).toBe(CONFIG);
+    expect(s.configSource).toBe(CONFIG);
+    expect(d.files.has(P.configSnapshot)).toBe(false);
+  });
+
+  it("removes the snapshot when the spawn fails and when the run is cleared", () => {
+    const failed = makeDeps({}, { run: () => ({ exitCode: 1, stdout: "" }) });
+    start(failed);
+    expect(failed.files.has(P.configSnapshot)).toBe(false);
+
+    const d = makeDeps({});
+    start(d);
+    expect(d.files.has(P.configSnapshot)).toBe(true);
+    stopAndClearRun(WT, d.deps);
+    expect(d.files.has(P.configSnapshot)).toBe(false);
+  });
+
+  it("supersedes a live same-head run started from a different --config", () => {
+    const first = makeDeps({});
+    start(first);
+    const d = makeDeps(
+      { [P.state]: first.files.get(P.state)!, "/other.json": ENABLED },
+      { isAlive: () => true, pidStartEpoch: () => 77 },
+    );
+    const s = startHelpers({ worktree: WT, config: "/other.json" }, d.deps);
+    expect(s.generation).toBe("gen-new");
+    expect(s.configSource).toBe("/other.json");
+    expect(d.kills.length).toBeGreaterThan(0);
+    expect(d.runs).toHaveLength(1);
+  });
+});
+
+describe("watchdog and helpers share one config", () => {
+  it("watchdog give-up matches each helper's own --config timeout", async () => {
+    const d = makeDeps({
+      [CONFIG]: JSON.stringify({
+        review: { gemini: true },
+        delegate: { timeouts: { reviewLens: "3m", intentGuess: "2m" } },
+      }),
+    });
+    const started = start(d);
+    const snapshotText = d.files.get(P.configSnapshot)!;
+
+    // Drive the real supervise loop to record the argv it hands each helper.
+    const argvs: string[][] = [];
+    await runSupervise(
+      { worktree: WT, generation: started.generation },
+      {
+        io: d.deps.io,
+        spawnChild: (argv) => {
+          argvs.push(argv);
+          return {
+            pid: 100 + argvs.length,
+            onExit: (cb) => cb(),
+            onError: () => {},
+          };
+        },
+        killGroup: () => {},
+        groupAlive: () => false,
+        nowSec: () => 1000,
+        sleep: async () => {},
+        onSignal: () => {},
+        pollMs: 5000,
+        graceMs: 0,
+      },
+    );
+    expect(argvs.map((a) => a[0])).toEqual([
+      "flow-gemini-lens",
+      "flow-gemini-intent-guess",
+    ]);
+
+    const seen: Record<string, string> = {};
+    const fakes = (name: string, argv: string[]) => {
+      const cfg = argv[argv.indexOf("--config") + 1]!;
+      expect(cfg).toBe(started.configPath);
+      expect(cfg).toBe(P.configSnapshot);
+      return {
+        readConfig: (path: string) => {
+          expect(path).toBe(P.configSnapshot);
+          return snapshotText;
+        },
+        runDelegate: (a: string[]) => {
+          seen[name] = a[a.indexOf("--timeout") + 1]!;
+          return { ran: false, skipReason: "agy-not-found" };
+        },
+        readFile: () => "diff",
+        writeFile: () => {},
+        removeFile: () => {},
+        removeDir: () => {},
+        mkdirp: () => {},
+        writeOut: () => {},
+        fileExists: () => false,
+      };
+    };
+    runLens(
+      argvs[0]!.slice(1),
+      strictDeps(lensRealDeps(), fakes("gemini-lens", argvs[0]!)),
+    );
+    runGuess(
+      argvs[1]!.slice(1),
+      strictDeps(guessRealDeps(), fakes("gemini-intent-guess", argvs[1]!)),
+    );
+
+    for (const helper of ["gemini-lens", "gemini-intent-guess"] as const) {
+      expect(started.helpers[helper].giveUpAtSec).toBe(
+        started.helpers[helper].startedAtSec +
+          giveUpSec(helper, godurToSec(seen[helper]!)),
+      );
+    }
+    expect(seen["gemini-lens"]).toBe("3m");
+    expect(seen["gemini-intent-guess"]).toBe("2m");
   });
 });

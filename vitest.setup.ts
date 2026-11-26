@@ -7,6 +7,7 @@ import {
   homeSandboxViolation,
   realAccountHome,
 } from "./bin/lib/hermetic-test-path";
+import { assertNoUnstubbedSeamHits } from "./bin/lib/test-seams";
 
 // Sandboxed $HOME for the entire test suite. A test that calls into code
 // reading os.homedir() — most often setup-rc.ts editing shell rc files —
@@ -137,6 +138,12 @@ beforeAll(() => {
 
 beforeEach(assertSandbox);
 afterEach(assertSandbox);
+
+// Fails the test that left an unstubbed-seam hit unconsumed (a strictDeps seam
+// the code under test swallowed). Both hooks, so a hit leaked from beforeAll
+// is attributed to the first test.
+beforeEach(assertNoUnstubbedSeamHits);
+afterEach(assertNoUnstubbedSeamHits);
 
 afterAll(() => {
   // Seam for credential-needing live tests (`bin/*.live.test.ts`) is

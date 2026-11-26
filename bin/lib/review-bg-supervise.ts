@@ -305,6 +305,7 @@ export async function runSupervise(
   } else if (!stopped) {
     const done = readReviewBgState(io.readFile(paths.state));
     io.removeFile(snapshotPath);
+    io.removeFile(paths.configSnapshot);
     for (const helper of running) {
       if (done?.helpers[helper].outcome === "complete") {
         io.removeFile(helperPaths(worktree, helper).log);

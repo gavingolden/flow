@@ -717,6 +717,12 @@ down to `20m`, warning once per surface on stderr, so a typo like `"200m"`
 cannot hold a pipeline for hours. An override between `9m` and `20m` now
 passes through as written; before, it was clamped to `9m`.
 
+`flow-review-bg start --config <file>` makes the watchdog and both helpers read
+`review.gemini`, `delegate.timeouts.*` and `delegate.models.*` from one frozen
+copy of that file taken at start, so a shorter limit there — or an edit to the
+file mid-run — can never let the watchdog give up on a check still inside its
+own limit.
+
 ## tmux status-bar bindings (opt-in)
 
 flow's `@flow-repo` / `@flow-phase` / `@flow-phase-short` / `@flow-epic` /
