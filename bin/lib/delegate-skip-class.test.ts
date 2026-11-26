@@ -40,6 +40,8 @@ describe("classifyDelegateSkip", () => {
         "gemini-lens-disabled",
         "gemini-intent-guess-disabled",
         "plan-review-disabled",
+        "gemini-config-untrusted",
+        "gemini-config-unwritable",
         "gemini-diff-unreadable",
         "gemini-intent-guess-diff-unreadable",
         "gemini-prep-failed",
