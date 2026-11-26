@@ -175,14 +175,16 @@ async function captureTarget(browser, storageState, t) {
     for (let i = 0; i < plan.length; i++) {
       const s = plan[i];
       let parts = [["start", "start"], ["end", "end"]];
-      if (s.height <= 1.5 * found.innerHeight) {
-        // A bottom bar can leave a short section's end clipped; then it earns an end shot too.
+      let alignedStart = false;
+      if (share > 0 && s.height <= 1.5 * found.innerHeight) {
+        // A section whose start shot leaves its bottom out of view (under a bottom bar, or past the viewport) earns an end shot too.
         const probed = s.selector ? await scrollSection(page, s.selector, "start") : null;
+        alignedStart = Boolean(probed);
         parts = probed && probed.clippedByBottom ? parts : [["whole", "start"]];
       }
       for (const [part, edge] of parts) {
         if (share <= 0) { out.omittedSections++; break; }
-        if (s.selector) await scrollSection(page, s.selector, edge);
+        if (s.selector && !(alignedStart && edge === "start")) await scrollSection(page, s.selector, edge);
         const file = cfg.names[[t.route, i + 1, vp.name, part].join("|")];
         fs.mkdirSync(path.dirname(file), { recursive: true });
         await page.screenshot({ path: file, fullPage: false });

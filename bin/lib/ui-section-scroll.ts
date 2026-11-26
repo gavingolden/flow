@@ -11,7 +11,7 @@ export type SectionScrollResult = {
   found: boolean;
   /** Signed scroll delta the nudge actually produced (negative = up). */
   offsetPx: number;
-  /** Start shot only: the section's bottom is still under bottom chrome. */
+  /** Start shot only: the section's bottom is below the visible area (under bottom chrome, or past the viewport edge when there is none) and the page can still scroll. */
   clippedByBottom: boolean;
 };
 
@@ -25,8 +25,11 @@ const SCROLL_SOURCE = String.raw`(a) => {
     const o = getComputedStyle(n).overflowY;
     return (o === "auto" || o === "scroll") && n.scrollHeight > n.clientHeight;
   };
+  const rootCs = getComputedStyle(document.documentElement);
+  const bodyPropagates = (rootCs.overflowX || "visible") === "visible" && (rootCs.overflowY || "visible") === "visible";
   let scroller = null;
-  for (let n = el.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+  for (let n = el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+    if (n === document.body && bodyPropagates) continue;
     if (isScroller(n)) { scroller = n; break; }
   }
   if (!scroller) scroller = document.scrollingElement || document.documentElement;
@@ -42,10 +45,11 @@ const SCROLL_SOURCE = String.raw`(a) => {
     const sticky = cs.position === "sticky";
     if (sticky && el.contains(n)) continue;
     const r = n.getBoundingClientRect();
-    if (r.width < 0.6 * W || r.height <= 0 || r.height > 0.35 * H) continue;
-    if (r.top >= H / 2 && r.bottom >= H - 40) {
+    const visW = Math.min(r.right, W) - Math.max(r.left, 0);
+    if (visW < 0.6 * W || r.height <= 0 || r.height > 0.35 * H) continue;
+    if (r.top >= H / 2 && r.top < H && r.bottom >= H - 40) {
       if (!sticky || r.bottom >= H - 1) bottoms.push(r.top);
-    } else if (r.top <= 40 && r.bottom < H / 2) {
+    } else if (r.top <= 40 && r.bottom > 0 && r.bottom < H / 2) {
       if (!sticky || r.top <= 1) tops.push(r.bottom);
     }
   }

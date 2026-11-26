@@ -77,10 +77,11 @@ exports.chromium = {
         evaluate: async (fn) => {
           const src = typeof fn === "string" ? fn : "";
           if (src.includes('"sel":')) {
+            log({ type: "scroll", part: /"part":"(\w+)"/.exec(src)[1] });
             return { found: true, offsetPx: 0, clippedByBottom: process.env.FAKE_CLIPPED === "1" };
           }
           const sections = src.includes("kids.slice") && process.env.FAKE_SECTION === "1"
-            ? [{ section: "A", selector: "#a", height: 600 }]
+            ? [{ section: "A", selector: "#a", height: Number(process.env.FAKE_SECTION_HEIGHT || 600) }]
             : [];
           return { hasDarkScheme: false, darkSchemeClass: null, sections, innerHeight: 800 };
         },
@@ -122,6 +123,7 @@ type Event =
   | { type: "goto"; ctx: number; url: string }
   | { type: "reload"; ctx: number }
   | { type: "wait"; ms: number }
+  | { type: "scroll"; part: string }
   | { type: "net"; ctx: number; url: string; served: "reuse" | "network" };
 
 type Traffic = Record<string, Record<string, unknown>[][]>;
@@ -130,7 +132,7 @@ type RunOpts = {
   backoff?: { minMs: number; maxMs: number; budgetMs: number };
   bodySettleMs?: number;
   /** Serve one 600px section; its start scroll reports this clippedByBottom. */
-  section?: { clippedByBottom: boolean };
+  section?: { clippedByBottom: boolean; height?: number };
 };
 
 function runScript(targets: Target[], withLogin: boolean, opts: RunOpts = {}) {
@@ -167,6 +169,7 @@ function runScript(targets: Target[], withLogin: boolean, opts: RunOpts = {}) {
         ? {
             FAKE_SECTION: "1",
             FAKE_CLIPPED: opts.section.clippedByBottom ? "1" : "0",
+            FAKE_SECTION_HEIGHT: String(opts.section.height ?? 600),
           }
         : {}),
       ...(withLogin
@@ -249,31 +252,49 @@ describe("generated capture script session choice", () => {
 });
 
 describe("generated capture script section shots", () => {
-  const partsOf = (clippedByBottom: boolean) => {
-    const { out } = runScript([t("/a")], false, {
-      section: { clippedByBottom },
+  const capture = (clippedByBottom: boolean, height?: number) => {
+    const { out, events } = runScript([t("/a")], false, {
+      section: { clippedByBottom, height },
     });
     expect(out.ok).toBe(true);
+    const shots = out.shots as {
+      viewport: string;
+      part: string;
+      section: string;
+    }[];
+    expect(shots.length).toBeGreaterThan(0);
+    expect(shots.every((s) => s.section === "A")).toBe(true);
     const byViewport = new Map<string, string[]>();
-    for (const s of out.shots as { viewport: string; part: string }[]) {
+    for (const s of shots) {
       byViewport.set(s.viewport, [
         ...(byViewport.get(s.viewport) ?? []),
         s.part,
       ]);
     }
-    return [...byViewport.values()];
+    const scrolls = ofType(events, "scroll").map((e) => e.part);
+    return {
+      parts: [...byViewport.values()],
+      scrolls,
+      viewports: byViewport.size,
+    };
   };
 
   it("takes start and end shots of a non-tall section still clipped by bottom chrome", () => {
-    const parts = partsOf(true);
-    expect(parts.length).toBeGreaterThan(0);
+    const { parts, scrolls, viewports } = capture(true);
     expect(parts.every((p) => p.join() === "start,end")).toBe(true);
+    expect(scrolls.join()).toBe(Array(viewports).fill("start,end").join());
   });
 
   it("takes one whole shot of a non-tall section the bar does not clip", () => {
-    const parts = partsOf(false);
-    expect(parts.length).toBeGreaterThan(0);
+    const { parts, scrolls, viewports } = capture(false);
     expect(parts.every((p) => p.join() === "whole")).toBe(true);
+    expect(scrolls.join()).toBe(Array(viewports).fill("start").join());
+  });
+
+  it("shoots start and end of a tall section without a probe scroll", () => {
+    const { parts, scrolls, viewports } = capture(false, 1300);
+    expect(parts.every((p) => p.join() === "start,end")).toBe(true);
+    expect(scrolls.join()).toBe(Array(viewports).fill("start,end").join());
   });
 });
 

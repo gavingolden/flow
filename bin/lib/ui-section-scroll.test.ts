@@ -21,6 +21,7 @@ type Spec = {
   top?: number;
   height?: number;
   width?: number;
+  left?: number;
   noRects?: boolean;
   closestHits?: string[];
 };
@@ -47,7 +48,16 @@ class Node {
   getBoundingClientRect() {
     const top = (this.spec.top ?? 0) - (this.pinned ? 0 : this.root.scrollTop);
     const height = this.spec.height ?? 0;
-    return { top, bottom: top + height, height, width: this.spec.width ?? W };
+    const width = this.spec.width ?? W;
+    const left = this.spec.left ?? 0;
+    return {
+      top,
+      bottom: top + height,
+      height,
+      width,
+      left,
+      right: left + width,
+    };
   }
   contains(o: Node | null): boolean {
     for (let n: Node | null = o; n; n = n.parentElement)
@@ -66,6 +76,7 @@ type Fixture = {
   nodes: Node[];
   sections: Node[];
   bar: Node | null;
+  doc: { scrollTop: number };
   root: {
     scrollTop: number;
     clientHeight: number;
@@ -81,6 +92,7 @@ function build(opts: {
   barInSection?: number;
   extra?: (f: Fixture, body: Node, sections: Node[]) => void;
   filler?: number;
+  scroller?: "main" | "body";
 }): Fixture {
   const padBottom = opts.padBottom ?? 65;
   const total = opts.heights.reduce((a, b) => a + b, 0) + padBottom;
@@ -108,7 +120,28 @@ function build(opts: {
   for (let i = 0; i < (opts.filler ?? 0); i++) {
     nodes.push(new Node(`f${i}`, { parent: main, top: 0, height: 10 }, root));
   }
-  const fx: Fixture = { nodes, sections, bar: null, root };
+  const doc = { scrollTop: 0, clientHeight: H, scrollHeight: H, scrollBy() {} };
+  const fx: Fixture = {
+    nodes,
+    sections,
+    bar: null,
+    root,
+    doc: opts.scroller ? doc : root,
+  };
+  if (opts.scroller) {
+    const el = opts.scroller === "main" ? main : body;
+    el.spec.style = { overflowY: "auto" };
+    if (el === body) html.spec.style = { overflowY: "hidden" };
+    Object.defineProperties(el, {
+      scrollTop: {
+        get: () => root.scrollTop,
+        set: (v: number) => (root.scrollTop = v),
+      },
+      clientHeight: { value: H },
+      scrollHeight: { get: () => root.scrollHeight },
+      scrollBy: { value: root.scrollBy },
+    });
+  }
   if (opts.bar !== "none") {
     const barSpec = {
       style: { position: "fixed" },
@@ -143,7 +176,7 @@ function run(
   g.document = {
     body,
     documentElement: html,
-    scrollingElement: fx.root,
+    scrollingElement: fx.doc,
     querySelector: (s: string) => byId.get(s) ?? null,
     querySelectorAll: () => fx.nodes,
   };
@@ -216,12 +249,52 @@ describe("sectionScrollSource", () => {
   it.each<[string, Omit<Spec, "parent">]>([
     ["display:none bar", { noRects: true }],
     ["opacity:0 bar", { style: { position: "fixed", opacity: "0" } }],
-    ["unpinned sticky element", { style: { position: "sticky" }, top: 300 }],
+    [
+      "unpinned sticky element",
+      { style: { position: "sticky" }, top: H - 57 - 20 },
+    ],
+    ["off-canvas drawer", { style: { position: "fixed" }, left: -W }],
+    ["bottom sheet below the viewport", { top: H + 10 }],
     ["400px fixed overlay", { top: H - 400, height: 400 }],
     ["aria-hidden bar", { closestHits: ['[aria-hidden="true"]'] }],
   ])("ignores a %s", (_n, bar) => {
     const fx = build({ heights: [1400, 1400], bar });
     expect(run(fx, "#s0", "end").offsetPx).toBe(0);
+  });
+
+  it("ignores an unpinned sticky top element on a start shot", () => {
+    const fx = build({
+      heights: [1400, 1400, 1400],
+      bar: "none",
+      extra: (f, body) => {
+        f.nodes.push(
+          new Node(
+            "hdr",
+            {
+              parent: body,
+              style: { position: "sticky" },
+              top: 20,
+              height: 56,
+            },
+            f.root,
+          ),
+        );
+      },
+    });
+    expect(run(fx, "#s1", "start").offsetPx).toBe(0);
+  });
+
+  it("nudges the nested scroller, not the document", () => {
+    const fx = build({ heights: [1400, 1400, 1400], scroller: "main" });
+    expect(run(fx, "#s2", "end").offsetPx).toBe(57);
+    expect(fx.root.scrollTop).toBeGreaterThan(0);
+    expect(fx.doc.scrollTop).toBe(0);
+  });
+
+  it("nudges body when html clips overflow and body is the scroller", () => {
+    const fx = build({ heights: [1400, 1400, 1400], scroller: "body" });
+    expect(run(fx, "#s2", "end").offsetPx).toBe(57);
+    expect(fx.doc.scrollTop).toBe(0);
   });
 
   it("ignores a sticky heading inside the section", () => {
