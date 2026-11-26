@@ -317,6 +317,7 @@ describe("runSupervise signals and ownership", () => {
       superseded = true;
       writeReviewBgState(WT, newer, t.io);
       t.files.set(P.snapshot, "new-diff");
+      t.files.set(P.configSnapshot, "new-config");
       t.files.set(P.lensLog, "new-lens-log");
       t.files.set(P.superviseLog, "new-supervise-log");
     };
@@ -327,6 +328,7 @@ describe("runSupervise signals and ownership", () => {
 
     expect(superseded).toBe(true);
     expect(t.files.get(P.snapshot)).toBe("new-diff");
+    expect(t.files.get(P.configSnapshot)).toBe("new-config");
     expect(t.files.get(P.lensLog)).toBe("new-lens-log");
     expect(t.files.get(P.superviseLog)).toBe("new-supervise-log");
     expect(removedDirs).toEqual([]);
